@@ -229,7 +229,7 @@ jobs:
       - name: Verify build
         shell: cmd
         run: |
-          cl /I"build\${{ matrix.platform }}\install\include" tests\verify_build.c /Fe:verify.exe /link "output\Windows\${{ matrix.output_arch }}\libcurl_unity.lib"
+          cl /DCURL_STATICLIB /I"build\${{ matrix.platform }}\install\include" tests\verify_build.c /Fe:verify.exe /link "output\Windows\${{ matrix.output_arch }}\libcurl_unity.lib"
           copy "output\Windows\${{ matrix.output_arch }}\libcurl_unity.dll" .
           verify.exe
 
