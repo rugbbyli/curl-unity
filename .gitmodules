@@ -1,0 +1,18 @@
+[submodule "deps/curl"]
+	path = deps/curl
+	url = git@github.com:curl/curl.git
+[submodule "deps/openssl"]
+	path = deps/openssl
+	url = https://github.com/openssl/openssl
+[submodule "deps/nghttp2"]
+	path = deps/nghttp2
+	url = https://github.com/nghttp2/nghttp2
+[submodule "deps/nghttp3"]
+	path = deps/nghttp3
+	url = https://github.com/ngtcp2/nghttp3
+[submodule "deps/ngtcp2"]
+	path = deps/ngtcp2
+	url = https://github.com/ngtcp2/ngtcp2
+[submodule "deps/zlib"]
+	path = deps/zlib
+	url = https://github.com/madler/zlib

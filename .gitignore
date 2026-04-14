@@ -1,0 +1,17 @@
+# 构建产物
+build/
+output/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.swp
+*~
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+Desktop.ini
