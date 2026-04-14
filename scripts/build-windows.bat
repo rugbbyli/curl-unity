@@ -303,6 +303,7 @@ cmake -B "%CURL_BUILD%" -S "%CURL_SRC%" -G Ninja ^
     -DBUILD_SHARED_LIBS=OFF ^
     -DBUILD_STATIC_LIBS=ON ^
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON ^
+    -DCMAKE_C_FLAGS="/DNGHTTP2_STATICLIB /DNGTCP2_STATICLIB /DNGHTTP3_STATICLIB" ^
     -DCURL_ENABLE_SSL=ON ^
     -DCURL_USE_OPENSSL=ON ^
     -DUSE_NGHTTP2=ON ^
@@ -358,7 +359,7 @@ cl /O2 /LD /MD ^
     "%PREFIX%\lib\ngtcp2_crypto_ossl.lib" ^
     "%PREFIX%\lib\nghttp3.lib" ^
     "%PREFIX%\lib\zs.lib" ^
-    ws2_32.lib crypt32.lib advapi32.lib bcrypt.lib
+    ws2_32.lib crypt32.lib advapi32.lib bcrypt.lib user32.lib
 if errorlevel 1 goto :error
 
 REM Clean intermediate files (keep .lib for linking)
