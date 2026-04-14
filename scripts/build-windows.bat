@@ -143,10 +143,19 @@ perl "%DEPS_SRC%\openssl\Configure" %OPENSSL_TARGET% ^
     no-apps
 if errorlevel 1 ( popd & goto :error )
 
-nmake
+REM Use jom for parallel build if available, fall back to nmake
+where jom >nul 2>&1 && (
+    jom -j%NUMBER_OF_PROCESSORS%
+) || (
+    nmake
+)
 if errorlevel 1 ( popd & goto :error )
 
-nmake install_sw
+where jom >nul 2>&1 && (
+    jom install_sw
+) || (
+    nmake install_sw
+)
 if errorlevel 1 ( popd & goto :error )
 
 popd

@@ -166,8 +166,8 @@ jobs:
         with:
           arch: ${{ matrix.arch }}
 
-      - name: Install NASM
-        run: choco install nasm -y --no-progress
+      - name: Install NASM and jom
+        run: choco install nasm jom -y --no-progress
         shell: cmd
 
       - name: Add NASM to PATH
