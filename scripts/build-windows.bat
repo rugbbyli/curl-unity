@@ -144,18 +144,14 @@ perl "%DEPS_SRC%\openssl\Configure" %OPENSSL_TARGET% ^
 if errorlevel 1 ( popd & goto :error )
 
 REM Use jom for parallel build if available, fall back to nmake
-where jom >nul 2>&1 && (
-    jom -j%NUMBER_OF_PROCESSORS%
-) || (
-    nmake
-)
+set "MAKE_CMD=nmake"
+where jom >nul 2>&1 && set "MAKE_CMD=jom -j%NUMBER_OF_PROCESSORS%"
+echo   Build tool: %MAKE_CMD%
+
+%MAKE_CMD%
 if errorlevel 1 ( popd & goto :error )
 
-where jom >nul 2>&1 && (
-    jom install_sw
-) || (
-    nmake install_sw
-)
+%MAKE_CMD% install_sw
 if errorlevel 1 ( popd & goto :error )
 
 popd
@@ -348,7 +344,7 @@ if not exist "%DLL_OUT%" mkdir "%DLL_OUT%"
 cl /O2 /LD /MD ^
     /I"%PREFIX%\include" ^
     "%BRIDGE_SRC%" ^
-    /Fo:"%DLL_OUT%\" ^
+    /Fo:"%DLL_OUT%\curl_unity_bridge.obj" ^
     /Fe:"%DLL_OUT%\libcurl_unity.dll" ^
     /link ^
     /IMPLIB:"%DLL_OUT%\libcurl_unity.lib" ^
