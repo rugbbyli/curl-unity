@@ -1,22 +1,22 @@
 @echo off
 REM ============================================================
-REM libcurl Windows 构建脚本 (MSVC)
+REM libcurl Windows build script (MSVC)
 REM
-REM 用法:
-REM   从 "x64 Native Tools Command Prompt" 运行编译 64 位
-REM   从 "x86 Native Tools Command Prompt" 运行编译 32 位
+REM Usage:
+REM   Run from "x64 Native Tools Command Prompt" for 64-bit
+REM   Run from "x86 Native Tools Command Prompt" for 32-bit
 REM
-REM 选项:
-REM   --clean    清理该架构的 build 目录后重新编译
+REM Options:
+REM   --clean    Clean build directory before building
 REM
-REM 前提:
-REM   Visual Studio 2019+ (C++ 桌面开发工作负载)
-REM   CMake, Ninja, Perl (用于 OpenSSL), Git
+REM Prerequisites:
+REM   Visual Studio 2017+ (C++ desktop workload)
+REM   CMake, Ninja, Perl (for OpenSSL), Git
 REM ============================================================
 setlocal enabledelayedexpansion
 
 REM ============================================================
-REM 项目路径
+REM Project paths
 REM ============================================================
 set "SCRIPT_DIR=%~dp0"
 for %%i in ("%SCRIPT_DIR%\..") do set "PROJECT_ROOT=%%~fi"
@@ -26,19 +26,25 @@ set "BRIDGE_SRC=%PROJECT_ROOT%\bridge\curl_unity_bridge.c"
 set "OUTPUT_DIR=%PROJECT_ROOT%\output"
 
 REM ============================================================
-REM 检测 MSVC 目标架构
+REM Detect MSVC target architecture
 REM ============================================================
 set "ARCH="
-cl 2>&1 | findstr /C:"for x64" >nul 2>&1 && set "ARCH=x64"
+
+REM Method 1: VSCMD_ARG_TGT_ARCH (set by vcvarsall.bat, locale-independent)
+if "%VSCMD_ARG_TGT_ARCH%"=="x64" set "ARCH=x64"
+if "%VSCMD_ARG_TGT_ARCH%"=="x86" set "ARCH=x86"
+
+REM Method 2: parse cl.exe output (fallback, works across locales)
 if not defined ARCH (
-    cl 2>&1 | findstr /C:"for x86" >nul 2>&1 && set "ARCH=x86"
+    cl 2>&1 | findstr /C:"x64" >nul 2>&1 && set "ARCH=x64"
 )
 if not defined ARCH (
-    cl 2>&1 | findstr /C:"for ARM64" >nul 2>&1 && set "ARCH=arm64"
+    cl 2>&1 | findstr /C:"x86" >nul 2>&1 && set "ARCH=x86"
 )
+
 if not defined ARCH (
-    echo [ERROR] 无法检测 MSVC 目标架构
-    echo 请从 "x64 Native Tools Command Prompt" 或 "x86 Native Tools Command Prompt" 运行此脚本
+    echo [ERROR] Cannot detect MSVC target architecture.
+    echo Run this script from "x64 Native Tools Command Prompt" or "x86 Native Tools Command Prompt".
     exit /b 1
 )
 
@@ -51,27 +57,27 @@ if "%ARCH%"=="x64" (
     set "OPENSSL_TARGET=VC-WIN32"
     set "OUTPUT_ARCH=x86"
 ) else (
-    echo [ERROR] 不支持的架构: %ARCH%
+    echo [ERROR] Unsupported architecture: %ARCH%
     exit /b 1
 )
 
 set "PREFIX=%PROJECT_ROOT%\build\%PLATFORM%\install"
 
 echo ========================================
-echo   libcurl Windows 构建脚本
-echo   架构: %ARCH% (%PLATFORM%)
-echo   项目: %PROJECT_ROOT%
+echo   libcurl Windows build
+echo   Arch: %ARCH% (%PLATFORM%)
+echo   Root: %PROJECT_ROOT%
 echo ========================================
 
 REM ============================================================
-REM 解析选项
+REM Parse options
 REM ============================================================
 set "CLEAN=0"
 for %%a in (%*) do (
     if "%%a"=="--clean" set "CLEAN=1"
 )
 if "%CLEAN%"=="1" (
-    echo 清理 build\%PLATFORM% ...
+    echo Cleaning build\%PLATFORM% ...
     if exist "%PROJECT_ROOT%\build\%PLATFORM%" rd /s /q "%PROJECT_ROOT%\build\%PLATFORM%"
 )
 
@@ -79,7 +85,7 @@ if not exist "%PREFIX%\lib" mkdir "%PREFIX%\lib"
 if not exist "%PREFIX%\include" mkdir "%PREFIX%\include"
 
 REM ============================================================
-REM 编译 zlib
+REM Build zlib
 REM ============================================================
 if exist "%PREFIX%\lib\zlibstatic.lib" (
     echo [SKIP] zlib already built
@@ -110,7 +116,7 @@ if errorlevel 1 goto :error
 echo   zlib done.
 
 REM ============================================================
-REM 编译 OpenSSL
+REM Build OpenSSL
 REM ============================================================
 :build_openssl
 if exist "%PREFIX%\lib\libssl.lib" if exist "%PREFIX%\lib\libcrypto.lib" (
@@ -147,7 +153,7 @@ popd
 echo   OpenSSL done.
 
 REM ============================================================
-REM 编译 nghttp2
+REM Build nghttp2
 REM ============================================================
 :build_nghttp2
 if exist "%PREFIX%\lib\nghttp2.lib" (
@@ -184,7 +190,7 @@ if errorlevel 1 goto :error
 echo   nghttp2 done.
 
 REM ============================================================
-REM 编译 nghttp3
+REM Build nghttp3
 REM ============================================================
 :build_nghttp3
 if exist "%PREFIX%\lib\nghttp3.lib" (
@@ -221,7 +227,7 @@ if errorlevel 1 goto :error
 echo   nghttp3 done.
 
 REM ============================================================
-REM 编译 ngtcp2
+REM Build ngtcp2
 REM ============================================================
 :build_ngtcp2
 if exist "%PREFIX%\lib\ngtcp2.lib" (
@@ -261,7 +267,7 @@ if errorlevel 1 goto :error
 echo   ngtcp2 done.
 
 REM ============================================================
-REM 编译 libcurl (静态库)
+REM Build libcurl (static)
 REM ============================================================
 :build_curl
 echo.
@@ -311,7 +317,7 @@ if errorlevel 1 goto :error
 echo   libcurl done.
 
 REM ============================================================
-REM 编译 bridge + 收集产物 → libcurl_unity.dll
+REM Build bridge + collect output -> libcurl_unity.dll
 REM ============================================================
 echo.
 echo ========================================
@@ -338,7 +344,7 @@ cl /O2 /LD /MD ^
     ws2_32.lib crypt32.lib advapi32.lib bcrypt.lib
 if errorlevel 1 goto :error
 
-REM 清理编译中间文件
+REM Clean intermediate files
 del /q "%DLL_OUT%\curl_unity_bridge.obj" 2>nul
 del /q "%DLL_OUT%\libcurl_unity.exp" 2>nul
 
@@ -352,7 +358,7 @@ echo   Output:   %DLL_OUT%\libcurl_unity.dll
 exit /b 0
 
 REM ============================================================
-REM 工具函数
+REM Helper functions
 REM ============================================================
 
 :ensure_submodules

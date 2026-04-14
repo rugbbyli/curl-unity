@@ -1,6 +1,15 @@
 # 构建产物
 build/
 output/
+tests/**/bin/
+tests/**/obj/
+
+demo
+demo/**/Library/
+demo/**/Temp/
+demo/**/Obj/
+demo/**/Build/
+demo/**/Logs/
 
 # IDE
 .vs/
