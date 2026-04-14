@@ -87,7 +87,7 @@ if not exist "%PREFIX%\include" mkdir "%PREFIX%\include"
 REM ============================================================
 REM Build zlib
 REM ============================================================
-if exist "%PREFIX%\lib\zlibstatic.lib" (
+if exist "%PREFIX%\lib\zs.lib" (
     echo [SKIP] zlib already built
     goto :build_openssl
 )
@@ -357,7 +357,7 @@ cl /O2 /LD /MD ^
     "%PREFIX%\lib\ngtcp2.lib" ^
     "%PREFIX%\lib\ngtcp2_crypto_ossl.lib" ^
     "%PREFIX%\lib\nghttp3.lib" ^
-    "%PREFIX%\lib\zlibstatic.lib" ^
+    "%PREFIX%\lib\zs.lib" ^
     ws2_32.lib crypt32.lib advapi32.lib bcrypt.lib
 if errorlevel 1 goto :error
 
