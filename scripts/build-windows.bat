@@ -359,7 +359,7 @@ cl /O2 /LD /MD ^
     "%PREFIX%\lib\ngtcp2_crypto_ossl.lib" ^
     "%PREFIX%\lib\nghttp3.lib" ^
     "%PREFIX%\lib\zs.lib" ^
-    ws2_32.lib crypt32.lib advapi32.lib bcrypt.lib user32.lib
+    ws2_32.lib crypt32.lib advapi32.lib bcrypt.lib user32.lib iphlpapi.lib
 if errorlevel 1 goto :error
 
 REM Clean intermediate files (keep .lib for linking)
