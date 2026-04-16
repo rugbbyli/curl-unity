@@ -53,6 +53,8 @@ namespace CurlUnity.Http
                     if (tcs.TrySetCanceled(ct))
                     {
                         _pendingTasks.TryRemove(tcs, out _);
+                        if (_cancellations.TryRemove(curlReq.Handle, out var r))
+                            r.Dispose();
                         _worker.Cancel(curlReq);
                     }
                 });
