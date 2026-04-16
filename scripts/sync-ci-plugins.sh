@@ -112,6 +112,7 @@ sync_file "$TEMP_DIR/macos-arm64/libcurl_unity.dylib"  "$PLUGINS_DIR/macOS/libcu
 sync_file "$TEMP_DIR/ios-arm64/libcurl_unity.a"        "$PLUGINS_DIR/iOS/libcurl_unity.a"
 sync_file "$TEMP_DIR/android-arm64/libcurl_unity.so"   "$PLUGINS_DIR/Android/arm64-v8a/libcurl_unity.so"
 sync_file "$TEMP_DIR/android-armv7/libcurl_unity.so"   "$PLUGINS_DIR/Android/armeabi-v7a/libcurl_unity.so"
+sync_file "$TEMP_DIR/android-x86_64/libcurl_unity.so"  "$PLUGINS_DIR/Android/x86_64/libcurl_unity.so"
 sync_file "$TEMP_DIR/windows-x64/libcurl_unity.dll"    "$PLUGINS_DIR/Windows/x86_64/libcurl_unity.dll"
 sync_file "$TEMP_DIR/windows-x86/libcurl_unity.dll"    "$PLUGINS_DIR/Windows/x86/libcurl_unity.dll"
 

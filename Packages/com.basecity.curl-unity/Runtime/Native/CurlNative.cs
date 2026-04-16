@@ -14,9 +14,7 @@ namespace CurlUnity.Native
     {
 #if UNITY_IOS && !UNITY_EDITOR
         private const string LIB = "__Internal";
-#elif UNITY_ANDROID && !UNITY_EDITOR
-        private const string LIB = "curl_unity";
-#elif UNITY_STANDALONE_WIN && !UNITY_EDITOR
+#elif UNITY_STANDALONE_WIN
         private const string LIB = "libcurl_unity";
 #else
         private const string LIB = "curl_unity";
