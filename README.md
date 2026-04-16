@@ -114,9 +114,9 @@ GitHub Actions 提供全平台自动构建：
 
 libcurl + 全部依赖的跨平台编译管线。
 
-- [x] macOS ARM64 构建
+- [x] macOS ARM64 + x86_64 构建
 - [x] iOS ARM64 构建
-- [x] Android arm64 + armv7 构建
+- [x] Android arm64 + armv7 + x86_64 构建
 - [x] Windows x64 + x86 构建 (MSVC)
 - [x] Bridge 层 (variadic 函数包装)
 - [x] CI 全平台自动构建 (GitHub Actions)
