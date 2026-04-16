@@ -132,7 +132,7 @@ C# 封装层 + Unity 集成，开发中。
 - [x] Http 公开 API (IHttpClient / CurlHttpClient / HttpRequest / HttpResponse)
 - [x] 扩展方法 (GetAsync / PostJsonAsync / ...)
 - [x] 诊断模块 (HttpDiagnostics / HttpRequestTiming)
-- [ ] CA 证书 (Apple SecTrust / Android JNI / Windows CryptoAPI)
+- [x] CA 证书 (Apple SecTrust / Android JNI / Windows CryptoAPI)
 - [x] iOS 构建后处理 (CurlPostProcessor)
 - [ ] Cookie 跨请求共享
 - [ ] Proxy 支持
