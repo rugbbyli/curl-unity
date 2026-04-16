@@ -69,13 +69,6 @@ if "%ARCH%"=="x64" (
 
 set "PREFIX=%PROJECT_ROOT%\build\%PLATFORM%\install"
 
-echo ========================================
-echo   libcurl Windows build
-echo   Arch: %ARCH% (%PLATFORM%)
-echo   Min:  %WIN_MIN_VER%
-echo   Root: %PROJECT_ROOT%
-echo ========================================
-
 REM ============================================================
 REM Parse options
 REM ============================================================
@@ -91,6 +84,18 @@ for %%a in (%*) do (
         set "_NEXT_IS_WINMIN=1"
     )
 )
+if "!_NEXT_IS_WINMIN!"=="1" (
+    echo [ERROR] --win-min requires a value ^(e.g. 0x0601^)
+    exit /b 1
+)
+
+echo ========================================
+echo   libcurl Windows build
+echo   Arch: %ARCH% (%PLATFORM%)
+echo   Min:  %WIN_MIN_VER%
+echo   Root: %PROJECT_ROOT%
+echo ========================================
+
 if "%CLEAN%"=="1" (
     echo Cleaning build\%PLATFORM% ...
     if exist "%PROJECT_ROOT%\build\%PLATFORM%" rd /s /q "%PROJECT_ROOT%\build\%PLATFORM%"

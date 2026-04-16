@@ -91,11 +91,17 @@ CURL_STATIC=ON
 configure_platform() {
   case "$PLATFORM" in
     macos-arm64)
+      # arm64 Mac 最低支持 macOS 11.0，自动提升低于此值的设置
+      local macos_min="$MACOS_MIN_VERSION"
+      if [[ "$(printf '%s\n' "11.0" "$macos_min" | sort -V | head -1)" != "11.0" ]]; then
+        echo "  注意: arm64 最低支持 macOS 11.0，已将 $macos_min 提升到 11.0"
+        macos_min="11.0"
+      fi
       OPENSSL_TARGET="darwin64-arm64-cc"
-      OPENSSL_EXTRA_ARGS=("-mmacosx-version-min=$MACOS_MIN_VERSION")
+      OPENSSL_EXTRA_ARGS=("-mmacosx-version-min=$macos_min")
       CMAKE_EXTRA_ARGS=(
         -DCMAKE_OSX_ARCHITECTURES=arm64
-        -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOS_MIN_VERSION"
+        -DCMAKE_OSX_DEPLOYMENT_TARGET="$macos_min"
       )
       ;;
     macos-x86_64)

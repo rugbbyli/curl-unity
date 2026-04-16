@@ -443,7 +443,7 @@ install_name_tool -id @rpath/libcurl.dylib $OUTPUT_DIR/macOS/libcurl.dylib
 
 #### 5.1.7 macOS 特殊注意事项
 
-- **最低部署版本**：默认 macOS 10.14 (Mojave)，与 Unity 2022 支持的最低 macOS 版本对齐。可通过 `--macos-min` 参数调整。所有依赖（OpenSSL、nghttp2 等）和最终 dylib 链接均使用统一的 deployment target。
+- **最低部署版本**：默认 macOS 10.14 (Mojave)，与 Unity 2022 支持的最低 macOS 版本对齐。可通过 `--macos-min` 参数调整。注意 arm64 (Apple Silicon) 最低仅支持 macOS 11.0，构建脚本会自动将低于 11.0 的值提升到 11.0；`--macos-min` 设为 10.14 仅对 x86_64 实际生效。所有依赖（OpenSSL、nghttp2 等）和最终 dylib 链接均使用统一的 deployment target。
 - **install_name**：使用 `install_name_tool -id @rpath/libcurl.dylib` 确保 Unity 能正确加载。
 - **代码签名**：macOS 可能要求动态库签名，发布前需 `codesign --force --sign - libcurl.dylib`。
 
