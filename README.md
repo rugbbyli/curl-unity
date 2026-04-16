@@ -18,10 +18,11 @@ libcurl 的 Unity3D 原生封装，通过 P/Invoke 提供 **HTTP/2 + HTTP/3 (QUI
 
 | 平台 | 架构 | 产物 | 最低版本 |
 |------|------|------|---------|
-| macOS | ARM64, x86_64 (Universal) | libcurl_unity.dylib | macOS 11+ |
+| macOS | ARM64 | libcurl_unity.dylib | macOS 11.0+ (Big Sur) |
+| macOS | x86_64 | libcurl_unity.dylib | macOS 10.14+ (Mojave) |
 | iOS | ARM64 | libcurl_unity.a (静态库) | iOS 12.0 |
 | Android | arm64-v8a, armeabi-v7a, x86_64 | libcurl_unity.so | API 22 (Android 5.1) |
-| Windows | x64, x86 | libcurl_unity.dll | Windows 10+ |
+| Windows | x64, x86 | libcurl_unity.dll | Windows 7 SP1+ |
 
 ## 依赖
 
@@ -114,9 +115,9 @@ GitHub Actions 提供全平台自动构建：
 
 libcurl + 全部依赖的跨平台编译管线。
 
-- [x] macOS ARM64 构建
+- [x] macOS ARM64 + x86_64 构建
 - [x] iOS ARM64 构建
-- [x] Android arm64 + armv7 构建
+- [x] Android arm64 + armv7 + x86_64 构建
 - [x] Windows x64 + x86 构建 (MSVC)
 - [x] Bridge 层 (variadic 函数包装)
 - [x] CI 全平台自动构建 (GitHub Actions)
