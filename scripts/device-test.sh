@@ -214,22 +214,31 @@ if $DO_BUILD; then
     mkdir -p "$BUILD_DIR"
     local_log="$BUILD_DIR/unity-build-$PLATFORM.log"
 
+    # Pass -buildTarget so Unity activates the correct platform BEFORE the
+    # project loads. Without it, editor scripts gated on e.g. UNITY_IOS
+    # (CurlPostProcessor) are compiled out and their [PostProcessBuild]
+    # callbacks never register — the iOS build then fails to link libz.
     case "$PLATFORM" in
         macos)
-            METHOD="AutoTestBuilder.BuildMacOS" ;;
+            METHOD="AutoTestBuilder.BuildMacOS"
+            UNITY_TARGET="OSXUniversal" ;;
         windows)
-            METHOD="AutoTestBuilder.BuildWindows" ;;
+            METHOD="AutoTestBuilder.BuildWindows"
+            UNITY_TARGET="Win64" ;;
         android)
-            METHOD="AutoTestBuilder.BuildAndroid" ;;
+            METHOD="AutoTestBuilder.BuildAndroid"
+            UNITY_TARGET="Android" ;;
         ios)
-            METHOD="AutoTestBuilder.BuildiOS" ;;
+            METHOD="AutoTestBuilder.BuildiOS"
+            UNITY_TARGET="iOS" ;;
     esac
 
-    log "Running: Unity -executeMethod $METHOD"
+    log "Running: Unity -buildTarget $UNITY_TARGET -executeMethod $METHOD"
     log "Build log: $local_log"
 
     "$UNITY_APP" \
         -batchmode -quit -nographics \
+        -buildTarget "$UNITY_TARGET" \
         -projectPath "$DEMO_DIR" \
         -executeMethod "$METHOD" \
         -logFile "$local_log" 2>&1 || {
