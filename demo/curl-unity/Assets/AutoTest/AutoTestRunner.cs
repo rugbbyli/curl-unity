@@ -73,6 +73,8 @@ public class AutoTestRunner : MonoBehaviour
             ("POST_Json",        TestPostJson),
             ("HTTPS_Verify",     TestHttpsVerify),
             ("HTTP2",            TestHttp2),
+            ("HTTP3_Only",       TestHttp3Only),
+            ("HTTP3_PreferH3",   TestPreferH3),
             ("ResponseHeaders",  TestResponseHeaders),
             ("Redirect",         TestRedirect),
             ("Timeout",          TestTimeout),
@@ -200,6 +202,64 @@ public class AutoTestRunner : MonoBehaviour
             // HTTP/2 = enum value 3
             Assert((int)resp.Version >= 3,
                 $"Expected HTTP/2+, got {resp.Version} ({(int)resp.Version})");
+        }
+        finally
+        {
+            client.PreferredVersion = saved;
+        }
+    }
+
+    // HTTP/3 测试用到的外部服务器，回显实际使用的协议（proto=HTTP/3 / HTTP/2 等）。
+    const string H3TestUrl = "https://h3-test.godrive.top/";
+
+    static async Task TestHttp3Only(CurlHttpClient client, CancellationToken ct)
+    {
+        // 强制仅使用 HTTP/3（CURL_HTTP_VERSION_3ONLY）：必须直接 QUIC 握手，
+        // 不允许 HTTP/2 fallback。验证 ngtcp2 + nghttp3 的打通与 UDP/443 连通性。
+        var saved = client.PreferredVersion;
+        client.PreferredVersion = HttpVersion.Http3Only;
+        try
+        {
+            using var resp = await client.GetAsync(H3TestUrl, ct);
+            Assert(resp.HasResponse,
+                $"No response: err={resp.ErrorCode} {resp.ErrorMessage}");
+            Assert(resp.StatusCode == 200,
+                $"Expected 200, got {resp.StatusCode}");
+            Assert(resp.Version == HttpVersion.Http3,
+                $"Expected HTTP/3, got {resp.Version} ({(int)resp.Version})");
+
+            var body = resp.Body != null ? Encoding.UTF8.GetString(resp.Body) : "";
+            Assert(body.StartsWith("proto=HTTP/3"),
+                $"Expected body to start with proto=HTTP/3, got: {body.Substring(0, Math.Min(60, body.Length))}");
+        }
+        finally
+        {
+            client.PreferredVersion = saved;
+        }
+    }
+
+    static async Task TestPreferH3(CurlHttpClient client, CancellationToken ct)
+    {
+        // CURL_HTTP_VERSION_3 (PreferH3)：首次请求通常走 HTTP/2 + alt-svc 广播，
+        // 后续连接升级到 HTTP/3。发两次请求验证 alt-svc 识别工作正常。
+        var saved = client.PreferredVersion;
+        client.PreferredVersion = HttpVersion.PreferH3;
+        try
+        {
+            using var resp1 = await client.GetAsync(H3TestUrl, ct);
+            Assert(resp1.HasResponse,
+                $"First request failed: err={resp1.ErrorCode} {resp1.ErrorMessage}");
+
+            using var resp2 = await client.GetAsync(H3TestUrl, ct);
+            Assert(resp2.HasResponse,
+                $"Second request failed: err={resp2.ErrorCode} {resp2.ErrorMessage}");
+            Assert(resp2.StatusCode == 200,
+                $"Expected 200, got {resp2.StatusCode}");
+
+            // 第二次请求应该识别到 alt-svc 并升级到 HTTP/3；HTTP/2 也接受，留容差。
+            var body = resp2.Body != null ? Encoding.UTF8.GetString(resp2.Body) : "";
+            Assert(body.StartsWith("proto=HTTP/"),
+                $"Expected body to start with proto=HTTP/, got: {body.Substring(0, Math.Min(60, body.Length))}");
         }
         finally
         {

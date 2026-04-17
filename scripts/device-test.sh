@@ -323,30 +323,42 @@ windows)
     log "Launching on Windows..."
     # Use Start-Process to detach from SSH session (survives SSH disconnect)
     win_user=$(echo "$WIN_SSH" | cut -d@ -f1)
-    # Delete old results, then launch
+    # 轮询 curl_test_results.txt 而不是 Player.log：
+    #   - Unity `-batchmode -nographics` + `Start-Process -WindowStyle Hidden`
+    #     下 Player.log 并非总会创建（stdout 无终端可挂载）；
+    #   - curl_test_results.txt 是 AutoTestRunner 主动写入的跨平台 fallback
+    #     （Android/iOS 也以此为准），协议上就是检测 END 的权威来源。
+    # 启动前先删旧文件，避免读到上次残留导致假 PASS。
     WIN_RESULT_DIR="C:/Users/$win_user/AppData/LocalLow/BaseCityTest/curl-unity-test"
     WIN_RESULT_FILE="$WIN_RESULT_DIR/curl_test_results.txt"
-    ssh "$WIN_SSH" "powershell Remove-Item '$WIN_RESULT_FILE' -ErrorAction SilentlyContinue" 2>/dev/null || true
-    ssh "$WIN_SSH" "powershell Start-Process -FilePath $WIN_REMOTE_DIR/curl-unity-test.exe -ArgumentList '-batchmode','-nographics','-autotest' -WindowStyle Hidden"
+    # 显式 -Command。PowerShell 在不带 -Command 时对数组语法
+    # `'-a','-b','-c'` 的解析受版本影响。
+    # Start-Process 后必须接 `Start-Sleep 3`：Windows OpenSSH Server 对
+    # 孤儿进程的处理会随 ssh 会话退出一起 kill 子进程组，sleep 给子
+    # 进程足够时间自行 detach。
+    ssh "$WIN_SSH" "powershell -Command \"Remove-Item '$WIN_RESULT_FILE' -ErrorAction SilentlyContinue\"" 2>/dev/null || true
+    ssh "$WIN_SSH" "powershell -Command \"Start-Process -FilePath $WIN_REMOTE_DIR/curl-unity-test.exe -ArgumentList '-batchmode','-nographics','-autotest' -WindowStyle Hidden; Start-Sleep 3\""
     log "App started on Windows"
 
-    # Poll Player.log on remote host (more reliable than results file on Windows)
-    WIN_PLAYER_LOG="C:\\Users\\$win_user\\AppData\\LocalLow\\BaseCityTest\\curl-unity-test\\Player.log"
     deadline=$(( $(date +%s) + TIMEOUT ))
-
     while (( $(date +%s) < deadline )); do
         sleep 5
         result=$(ssh -o ConnectTimeout=5 "$WIN_SSH" \
-            "powershell -Command \"Get-Content '$WIN_PLAYER_LOG' -ErrorAction SilentlyContinue\"" 2>/dev/null) || true
+            "powershell -Command \"Get-Content '$WIN_RESULT_FILE' -ErrorAction SilentlyContinue\"" 2>/dev/null) || true
         if echo "$result" | grep -q '\[CURL_TEST\] END'; then
             echo "$result" | grep '\[CURL_TEST\]' | wait_for_tests
-            exit $?
+            rc=$?
+            # 保险起见清理一下可能还没自然退出的进程
+            ssh "$WIN_SSH" "powershell -Command \"Stop-Process -Name curl-unity-test -ErrorAction SilentlyContinue\"" 2>/dev/null || true
+            exit $rc
         fi
         echo -n "."
     done
     echo ""
 
     err "Tests did not complete within ${TIMEOUT}s"
+    # 超时时也清理挂住的进程，避免下次复跑被旧进程阻塞
+    ssh "$WIN_SSH" "powershell -Command \"Stop-Process -Name curl-unity-test -ErrorAction SilentlyContinue\"" 2>/dev/null || true
     exit 1
     ;;
 
