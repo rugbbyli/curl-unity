@@ -115,6 +115,11 @@ namespace CurlUnity.Http
             // URL
             CurlNative.curl_unity_setopt_string(h, CurlNative.CURLOPT_URL, request.Url);
 
+            // 禁用 libcurl 默认读取 HTTPS_PROXY/HTTP_PROXY 环境变量的行为，避免
+            // 进程环境泄漏到网络配置（且 HTTP/3 本身无法经由 HTTP 代理）。
+            // 显式 Proxy 支持后续作为独立特性开放。
+            CurlNative.curl_unity_setopt_string(h, CurlNative.CURLOPT_PROXY, "");
+
             // 多线程环境必须禁用信号，避免 Unix 下 SIGALRM 干扰其他线程
             CurlNative.curl_unity_setopt_long(h, CurlNative.CURLOPT_NOSIGNAL, 1);
 

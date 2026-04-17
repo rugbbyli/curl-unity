@@ -28,6 +28,7 @@ namespace CurlUnity.Native
 
         // Common CURLOPT values
         public const int CURLOPT_URL = 10002;
+        public const int CURLOPT_PROXY = 10004;
         public const int CURLOPT_WRITEFUNCTION = 20011;
         public const int CURLOPT_WRITEDATA = 10001;
         public const int CURLOPT_HEADERFUNCTION = 20079;
