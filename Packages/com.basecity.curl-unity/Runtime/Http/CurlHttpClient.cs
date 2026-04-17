@@ -23,6 +23,7 @@ namespace CurlUnity.Http
     /// </remarks>
     public class CurlHttpClient : IHttpClient
     {
+        private readonly ICurlApi _api;
         private readonly CurlBackgroundWorker _worker;
         private readonly ConcurrentDictionary<IntPtr, CancellationTokenRegistration> _cancellations = new();
         private readonly ConcurrentDictionary<TaskCompletionSource<IHttpResponse>, byte> _pendingTasks = new();
@@ -38,12 +39,18 @@ namespace CurlUnity.Http
         public HttpDiagnostics Diagnostics { get; }
 
         public CurlHttpClient(bool enableDiagnostics = false)
+            : this(CurlNativeApi.Instance, enableDiagnostics)
         {
-            CurlGlobal.Acquire();
+        }
+
+        internal CurlHttpClient(ICurlApi api, bool enableDiagnostics = false)
+        {
+            _api = api ?? throw new ArgumentNullException(nameof(api));
+            CurlGlobal.Acquire(_api);
             CurlCerts.Initialize();
             if (enableDiagnostics)
                 Diagnostics = new HttpDiagnostics();
-            _worker = new CurlBackgroundWorker();
+            _worker = new CurlBackgroundWorker(_api);
             _worker.Start();
         }
 
@@ -79,7 +86,7 @@ namespace CurlUnity.Http
 
                 try
                 {
-                    var response = new HttpResponse(curlResp);
+                    var response = new HttpResponse(_api, curlResp);
                     Diagnostics?.Record(response);
 
                     if (!tcs.TrySetResult(response))
@@ -115,33 +122,33 @@ namespace CurlUnity.Http
                 kv.Value.Dispose();
             _cancellations.Clear();
 
-            CurlGlobal.Release();
+            CurlGlobal.Release(_api);
         }
 
         private CurlRequest BuildCurlRequest(IHttpRequest request)
         {
-            var curlReq = new CurlRequest();
+            var curlReq = new CurlRequest(_api);
             var h = curlReq.Handle;
 
             // URL
-            CurlNative.curl_unity_setopt_string(h, CurlNative.CURLOPT_URL, request.Url);
+            _api.SetOptString(h, CurlNative.CURLOPT_URL, request.Url);
 
             // 禁用 libcurl 默认读取 HTTPS_PROXY/HTTP_PROXY 环境变量的行为，避免
             // 进程环境泄漏到网络配置（且 HTTP/3 本身无法经由 HTTP 代理）。
             // 显式 Proxy 支持后续作为独立特性开放。
-            CurlNative.curl_unity_setopt_string(h, CurlNative.CURLOPT_PROXY, "");
+            _api.SetOptString(h, CurlNative.CURLOPT_PROXY, "");
 
             // 多线程环境必须禁用信号，避免 Unix 下 SIGALRM 干扰其他线程
-            CurlNative.curl_unity_setopt_long(h, CurlNative.CURLOPT_NOSIGNAL, 1);
+            _api.SetOptLong(h, CurlNative.CURLOPT_NOSIGNAL, 1);
 
             // HTTP version（枚举值与 curl 定义一致，直接 cast）
-            CurlNative.curl_unity_setopt_long(h, CurlNative.CURLOPT_HTTP_VERSION, (long)PreferredVersion);
+            _api.SetOptLong(h, CurlNative.CURLOPT_HTTP_VERSION, (long)PreferredVersion);
 
             // SSL 验证
             if (!VerifySSL)
             {
-                CurlNative.curl_unity_setopt_long(h, CurlNative.CURLOPT_SSL_VERIFYPEER, 0);
-                CurlNative.curl_unity_setopt_long(h, CurlNative.CURLOPT_SSL_VERIFYHOST, 0);
+                _api.SetOptLong(h, CurlNative.CURLOPT_SSL_VERIFYPEER, 0);
+                _api.SetOptLong(h, CurlNative.CURLOPT_SSL_VERIFYHOST, 0);
             }
 
             // Method
@@ -150,13 +157,13 @@ namespace CurlUnity.Http
                 case HttpMethod.Get:
                     break; // GET 是默认
                 case HttpMethod.Post:
-                    CurlNative.curl_unity_setopt_long(h, CurlNative.CURLOPT_POST, 1);
+                    _api.SetOptLong(h, CurlNative.CURLOPT_POST, 1);
                     break;
                 case HttpMethod.Head:
-                    CurlNative.curl_unity_setopt_long(h, CurlNative.CURLOPT_NOBODY, 1);
+                    _api.SetOptLong(h, CurlNative.CURLOPT_NOBODY, 1);
                     break;
                 default:
-                    CurlNative.curl_unity_setopt_string(h, CurlNative.CURLOPT_CUSTOMREQUEST,
+                    _api.SetOptString(h, CurlNative.CURLOPT_CUSTOMREQUEST,
                         request.Method.ToString().ToUpperInvariant());
                     break;
             }
@@ -164,12 +171,12 @@ namespace CurlUnity.Http
             // Body: 先设 size 再设 data，COPYPOSTFIELDS 会复制内容
             if (request.Body != null && request.Body.Length > 0)
             {
-                CurlNative.curl_unity_setopt_off_t(h, CurlNative.CURLOPT_POSTFIELDSIZE_LARGE, request.Body.Length);
+                _api.SetOptOffT(h, CurlNative.CURLOPT_POSTFIELDSIZE_LARGE, request.Body.Length);
                 var pin = System.Runtime.InteropServices.GCHandle.Alloc(request.Body,
                     System.Runtime.InteropServices.GCHandleType.Pinned);
                 try
                 {
-                    CurlNative.curl_unity_setopt_ptr(h, CurlNative.CURLOPT_COPYPOSTFIELDS, pin.AddrOfPinnedObject());
+                    _api.SetOptPtr(h, CurlNative.CURLOPT_COPYPOSTFIELDS, pin.AddrOfPinnedObject());
                 }
                 finally
                 {
@@ -182,27 +189,27 @@ namespace CurlUnity.Http
             {
                 var slist = IntPtr.Zero;
                 foreach (var kv in request.Headers)
-                    slist = CurlNative.curl_slist_append(slist, $"{kv.Key}: {kv.Value}");
+                    slist = _api.SListAppend(slist, $"{kv.Key}: {kv.Value}");
 
                 if (slist != IntPtr.Zero)
                 {
                     curlReq.HeaderSlist = slist;
-                    CurlNative.curl_unity_setopt_ptr(h, CurlNative.CURLOPT_HTTPHEADER, slist);
+                    _api.SetOptPtr(h, CurlNative.CURLOPT_HTTPHEADER, slist);
                 }
             }
 
             // Timeouts
             if (request.ConnectTimeoutMs > 0)
-                CurlNative.curl_unity_setopt_long(h, CurlNative.CURLOPT_CONNECTTIMEOUT_MS, request.ConnectTimeoutMs);
+                _api.SetOptLong(h, CurlNative.CURLOPT_CONNECTTIMEOUT_MS, request.ConnectTimeoutMs);
             if (request.TimeoutMs > 0)
-                CurlNative.curl_unity_setopt_long(h, CurlNative.CURLOPT_TIMEOUT_MS, request.TimeoutMs);
+                _api.SetOptLong(h, CurlNative.CURLOPT_TIMEOUT_MS, request.TimeoutMs);
 
             // Follow redirects
-            CurlNative.curl_unity_setopt_long(h, CurlNative.CURLOPT_FOLLOWLOCATION, 1);
+            _api.SetOptLong(h, CurlNative.CURLOPT_FOLLOWLOCATION, 1);
 
             // Cookies
             if (request.EnableCookies)
-                CurlNative.curl_unity_setopt_string(h, CurlNative.CURLOPT_COOKIELIST, "");
+                _api.SetOptString(h, CurlNative.CURLOPT_COOKIELIST, "");
 
             // Response headers capture
             curlReq.CaptureHeaders = request.EnableResponseHeaders;

@@ -7,6 +7,7 @@ namespace CurlUnity.Core
 {
     internal class CurlRequest : IDisposable
     {
+        internal readonly ICurlApi Api;
         internal readonly IntPtr Handle;
         internal Action<CurlResponse> OnComplete;
 
@@ -21,8 +22,14 @@ namespace CurlUnity.Core
         private bool _handleTransferred;
 
         public CurlRequest()
+            : this(CurlNativeApi.Instance)
         {
-            Handle = CurlNative.curl_easy_init();
+        }
+
+        internal CurlRequest(ICurlApi api)
+        {
+            Api = api ?? throw new ArgumentNullException(nameof(api));
+            Handle = api.EasyInit();
             if (Handle == IntPtr.Zero)
                 throw new InvalidOperationException("curl_easy_init returned null");
         }
@@ -42,7 +49,7 @@ namespace CurlUnity.Core
 
             if (HeaderSlist != IntPtr.Zero)
             {
-                CurlNative.curl_slist_free_all(HeaderSlist);
+                Api.SListFreeAll(HeaderSlist);
                 HeaderSlist = IntPtr.Zero;
             }
 
@@ -62,10 +69,10 @@ namespace CurlUnity.Core
                 SelfHandle.Free();
 
             if (HeaderSlist != IntPtr.Zero)
-                CurlNative.curl_slist_free_all(HeaderSlist);
+                Api.SListFreeAll(HeaderSlist);
 
             if (!_handleTransferred && Handle != IntPtr.Zero)
-                CurlNative.curl_easy_cleanup(Handle);
+                Api.EasyCleanup(Handle);
 
             BodyBuffer.Dispose();
             HeaderBuffer?.Dispose();

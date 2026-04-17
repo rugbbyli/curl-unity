@@ -42,17 +42,22 @@ namespace CurlUnity.Core
         /// </summary>
         public static void ApplyTo(IntPtr handle)
         {
+            ApplyTo(handle, CurlNativeApi.Instance);
+        }
+
+        internal static void ApplyTo(IntPtr handle, ICurlApi api)
+        {
             if (handle == IntPtr.Zero) return;
 
             // Android: use extracted PEM file
             if (!string.IsNullOrEmpty(_caCertPath))
             {
-                CurlNative.curl_unity_setopt_string(handle, CurlNative.CURLOPT_CAINFO, _caCertPath);
+                api.SetOptString(handle, CurlNative.CURLOPT_CAINFO, _caCertPath);
             }
 
 #if UNITY_STANDALONE_WIN || UNITY_WSA
             // Windows: use native certificate store via CryptoAPI (curl 7.71.0+)
-            CurlNative.curl_unity_setopt_long(handle, CurlNative.CURLOPT_SSL_OPTIONS,
+            api.SetOptLong(handle, CurlNative.CURLOPT_SSL_OPTIONS,
                 CurlNative.CURLSSLOPT_NATIVE_CA);
 #endif
         }

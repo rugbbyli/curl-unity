@@ -20,13 +20,20 @@ namespace CurlUnity.Core
     /// </summary>
     internal class CurlMulti : IDisposable
     {
+        private readonly ICurlApi _api;
         private IntPtr _multi;
         private bool _disposed;
         private readonly HashSet<CurlRequest> _activeRequests = new();
 
         public CurlMulti()
+            : this(CurlNativeApi.Instance)
         {
-            _multi = CurlNative.curl_multi_init();
+        }
+
+        internal CurlMulti(ICurlApi api)
+        {
+            _api = api ?? throw new ArgumentNullException(nameof(api));
+            _multi = _api.MultiInit();
             if (_multi == IntPtr.Zero)
                 throw new InvalidOperationException("curl_multi_init returned null");
         }
@@ -43,34 +50,34 @@ namespace CurlUnity.Core
             var ptr = GCHandle.ToIntPtr(request.SelfHandle);
 
             // write callback: 流式模式转发到 DataCallback，否则写入 BodyBuffer
-            CurlNative.curl_unity_setopt_write_function(request.Handle, OnWriteData);
-            CurlNative.curl_unity_setopt_write_data(request.Handle, ptr);
+            _api.SetOptWriteFunction(request.Handle, OnWriteData);
+            _api.SetOptWriteData(request.Handle, ptr);
 
             // header callback: 仅在 CaptureHeaders 时设置
             if (request.CaptureHeaders)
             {
                 request.HeaderBuffer = new MemoryStream(2048);
-                CurlNative.curl_unity_setopt_header_function(request.Handle, OnHeaderData);
-                CurlNative.curl_unity_setopt_header_data(request.Handle, ptr);
+                _api.SetOptHeaderFunction(request.Handle, OnHeaderData);
+                _api.SetOptHeaderData(request.Handle, ptr);
             }
 
             // PRIVATE 关联
-            CurlNative.curl_unity_setopt_ptr(request.Handle, CurlNative.CURLOPT_PRIVATE, ptr);
+            _api.SetOptPtr(request.Handle, CurlNative.CURLOPT_PRIVATE, ptr);
 
             // CA 证书
-            CurlCerts.ApplyTo(request.Handle);
+            CurlCerts.ApplyTo(request.Handle, _api);
 
             _activeRequests.Add(request);
-            CurlNative.curl_multi_add_handle(_multi, request.Handle);
+            _api.MultiAddHandle(_multi, request.Handle);
         }
 
         public void Tick()
         {
             if (_disposed) return;
 
-            CurlNative.curl_multi_perform(_multi, out _);
+            _api.MultiPerform(_multi, out _);
 
-            while (CurlNative.curl_unity_multi_info_read(_multi, out var easyHandle, out var curlCode) == 1)
+            while (_api.MultiInfoRead(_multi, out var easyHandle, out var curlCode) == 1)
             {
                 ProcessCompletion(easyHandle, curlCode);
             }
@@ -79,14 +86,14 @@ namespace CurlUnity.Core
         public void Poll(int timeoutMs)
         {
             if (_disposed) return;
-            CurlNative.curl_multi_poll(_multi, IntPtr.Zero, 0, timeoutMs, out _);
+            _api.MultiPoll(_multi, IntPtr.Zero, 0, timeoutMs, out _);
         }
 
         /// <summary>线程安全，可从任意线程调用。</summary>
         public void Wakeup()
         {
             if (_disposed) return;
-            CurlNative.curl_multi_wakeup(_multi);
+            _api.MultiWakeup(_multi);
         }
 
         /// <summary>
@@ -97,7 +104,7 @@ namespace CurlUnity.Core
         {
             if (_disposed) return;
             _activeRequests.Remove(request);
-            CurlNative.curl_multi_remove_handle(_multi, request.Handle);
+            _api.MultiRemoveHandle(_multi, request.Handle);
             request.Dispose();
         }
 
@@ -109,26 +116,26 @@ namespace CurlUnity.Core
             // 清理所有仍在执行的请求（释放 GCHandle 和 easy handle）
             foreach (var request in _activeRequests)
             {
-                CurlNative.curl_multi_remove_handle(_multi, request.Handle);
+                _api.MultiRemoveHandle(_multi, request.Handle);
                 request.Dispose();
             }
             _activeRequests.Clear();
 
             if (_multi != IntPtr.Zero)
             {
-                CurlNative.curl_multi_cleanup(_multi);
+                _api.MultiCleanup(_multi);
                 _multi = IntPtr.Zero;
             }
         }
 
         private void ProcessCompletion(IntPtr easyHandle, int curlCode)
         {
-            CurlNative.curl_unity_getinfo_string(easyHandle, CurlNative.CURLINFO_PRIVATE, out var ptr);
+            _api.GetInfoString(easyHandle, CurlNative.CURLINFO_PRIVATE, out var ptr);
             var request = (CurlRequest)GCHandle.FromIntPtr(ptr).Target;
 
             _activeRequests.Remove(request);
 
-            CurlNative.curl_unity_getinfo_long(easyHandle, CurlNative.CURLINFO_RESPONSE_CODE, out var statusCode);
+            _api.GetInfoLong(easyHandle, CurlNative.CURLINFO_RESPONSE_CODE, out var statusCode);
 
             var response = new CurlResponse
             {
@@ -139,7 +146,7 @@ namespace CurlUnity.Core
                 EasyHandle = request.Handle  // 所有权转移
             };
 
-            CurlNative.curl_multi_remove_handle(_multi, easyHandle);
+            _api.MultiRemoveHandle(_multi, easyHandle);
 
             try { request.OnComplete?.Invoke(response); }
             catch (Exception) { /* TODO: 接入日志系统 */ }

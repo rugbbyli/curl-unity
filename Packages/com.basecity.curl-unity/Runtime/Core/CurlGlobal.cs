@@ -14,19 +14,29 @@ namespace CurlUnity.Core
 
         public static void Acquire()
         {
+            Acquire(CurlNativeApi.Instance);
+        }
+
+        internal static void Acquire(ICurlApi api)
+        {
             lock (_lock)
             {
                 if (_refCount++ == 0)
-                    CurlNative.curl_global_init(CurlNative.CURL_GLOBAL_DEFAULT);
+                    api.CurlGlobalInit(CurlNative.CURL_GLOBAL_DEFAULT);
             }
         }
 
         public static void Release()
         {
+            Release(CurlNativeApi.Instance);
+        }
+
+        internal static void Release(ICurlApi api)
+        {
             lock (_lock)
             {
                 if (--_refCount == 0)
-                    CurlNative.curl_global_cleanup();
+                    api.CurlGlobalCleanup();
             }
         }
     }

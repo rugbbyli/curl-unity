@@ -1,12 +1,13 @@
 using System;
 using System.Collections.Concurrent;
 using System.Threading;
+using CurlUnity.Native;
 
 namespace CurlUnity.Core
 {
     internal class CurlBackgroundWorker : IDisposable
     {
-        private readonly CurlMulti _multi = new();
+        private readonly CurlMulti _multi;
         private readonly ConcurrentQueue<CurlRequest> _pendingRequests = new();
         private readonly ConcurrentQueue<CurlRequest> _pendingCancels = new();
         private Thread _thread;
@@ -14,6 +15,16 @@ namespace CurlUnity.Core
         private bool _disposed;
 
         public int PollTimeoutMs { get; set; } = 1000;
+
+        public CurlBackgroundWorker()
+            : this(CurlNativeApi.Instance)
+        {
+        }
+
+        internal CurlBackgroundWorker(ICurlApi api)
+        {
+            _multi = new CurlMulti(api);
+        }
 
         public void Start()
         {

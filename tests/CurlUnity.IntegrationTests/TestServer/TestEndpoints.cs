@@ -102,6 +102,19 @@ namespace CurlUnity.IntegrationTests.TestServer
                 return Results.Redirect($"{baseUrl}/redirect/{n - 1}");
             });
 
+            app.MapGet("/redirect-with-headers/{n:int}", (int n, HttpContext ctx) =>
+            {
+                if (n <= 0)
+                {
+                    ctx.Response.Headers["X-Final-Hop"] = "0";
+                    return Results.Text("final");
+                }
+
+                ctx.Response.Headers["X-Intermediate-Hop"] = n.ToString();
+                var baseUrl = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
+                return Results.Redirect($"{baseUrl}/redirect-with-headers/{n - 1}");
+            });
+
             app.MapGet("/custom-headers", (HttpContext ctx) =>
             {
                 ctx.Response.Headers["X-Custom-One"] = "value1";
