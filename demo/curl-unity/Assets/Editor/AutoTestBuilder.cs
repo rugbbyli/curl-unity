@@ -29,112 +29,143 @@ public static class AutoTestBuilder
 
     public static void BuildMacOS()
     {
-        Setup(BuildTargetGroup.Standalone);
-
+        RunWithRestoredSettings(BuildTargetGroup.Standalone, () =>
+        {
 #pragma warning disable CS0618 // SetApplicationIdentifier(BuildTargetGroup) is obsolete in 2023+
-        PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Standalone, BundleId);
+            PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Standalone, BundleId);
 #pragma warning restore CS0618
 
-        var options = new BuildPlayerOptions
-        {
-            scenes = GetScenes(),
-            locationPathName = $"{BuildDir}/macOS/curl-unity-test.app",
-            target = BuildTarget.StandaloneOSX,
-            options = BuildOptions.None,
-        };
+            var options = new BuildPlayerOptions
+            {
+                scenes = GetScenes(),
+                locationPathName = $"{BuildDir}/macOS/curl-unity-test.app",
+                target = BuildTarget.StandaloneOSX,
+                options = BuildOptions.None,
+            };
 
-        RunBuild(options, "macOS");
+            RunBuild(options, "macOS");
+        });
     }
 
     public static void BuildWindows()
     {
-        Setup(BuildTargetGroup.Standalone);
-
+        RunWithRestoredSettings(BuildTargetGroup.Standalone, () =>
+        {
 #pragma warning disable CS0618
-        PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Standalone, BundleId);
+            PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Standalone, BundleId);
 #pragma warning restore CS0618
 
-        // Use Mono backend for cross-compilation from macOS
-        PlayerSettings.SetScriptingBackend(BuildTargetGroup.Standalone, ScriptingImplementation.Mono2x);
+            // Use Mono backend for cross-compilation from macOS
+            PlayerSettings.SetScriptingBackend(BuildTargetGroup.Standalone, ScriptingImplementation.Mono2x);
 
-        var options = new BuildPlayerOptions
-        {
-            scenes = GetScenes(),
-            locationPathName = $"{BuildDir}/Windows/curl-unity-test.exe",
-            target = BuildTarget.StandaloneWindows64,
-            options = BuildOptions.None,
-        };
+            var options = new BuildPlayerOptions
+            {
+                scenes = GetScenes(),
+                locationPathName = $"{BuildDir}/Windows/curl-unity-test.exe",
+                target = BuildTarget.StandaloneWindows64,
+                options = BuildOptions.None,
+            };
 
-        RunBuild(options, "Windows");
+            RunBuild(options, "Windows");
+        });
     }
 
     public static void BuildAndroid()
     {
-        Setup(BuildTargetGroup.Android);
-
+        RunWithRestoredSettings(BuildTargetGroup.Android, () =>
+        {
 #pragma warning disable CS0618
-        PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, BundleId);
+            PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, BundleId);
 #pragma warning restore CS0618
 
-        // Android-specific
-        PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
-        EditorUserBuildSettings.buildAppBundle = false;
+            // Android-specific
+            PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
+            EditorUserBuildSettings.buildAppBundle = false;
 
-        var options = new BuildPlayerOptions
-        {
-            scenes = GetScenes(),
-            locationPathName = $"{BuildDir}/Android/curl-unity-test.apk",
-            target = BuildTarget.Android,
-            options = BuildOptions.None,
-        };
+            var options = new BuildPlayerOptions
+            {
+                scenes = GetScenes(),
+                locationPathName = $"{BuildDir}/Android/curl-unity-test.apk",
+                target = BuildTarget.Android,
+                options = BuildOptions.None,
+            };
 
-        RunBuild(options, "Android");
+            RunBuild(options, "Android");
+        });
     }
 
     public static void BuildiOS()
     {
-        Setup(BuildTargetGroup.iOS);
-
+        RunWithRestoredSettings(BuildTargetGroup.iOS, () =>
+        {
 #pragma warning disable CS0618
-        PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.iOS, BundleId);
+            PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.iOS, BundleId);
 #pragma warning restore CS0618
 
-        // iOS signing
-        var teamId = Environment.GetEnvironmentVariable("UNITY_IOS_TEAM_ID");
-        if (string.IsNullOrEmpty(teamId))
-            teamId = "FSV2P3ELJP"; // Default: 4A Volcano team
+            // iOS signing — Team ID must be provided explicitly, no fallback default,
+            // to avoid baking any individual's team id into the committed project.
+            var teamId = Environment.GetEnvironmentVariable("UNITY_IOS_TEAM_ID");
+            if (string.IsNullOrEmpty(teamId))
+            {
+                Debug.LogError(
+                    "[AutoTestBuilder] UNITY_IOS_TEAM_ID is not set. " +
+                    "Export your Apple Developer Team ID before running BuildiOS.");
+                EditorApplication.Exit(2);
+                return;
+            }
 
-        PlayerSettings.iOS.appleDeveloperTeamID = teamId;
-        PlayerSettings.iOS.appleEnableAutomaticSigning = true;
-        PlayerSettings.iOS.buildNumber = "1";
+            PlayerSettings.iOS.appleDeveloperTeamID = teamId;
+            PlayerSettings.iOS.appleEnableAutomaticSigning = true;
+            PlayerSettings.iOS.buildNumber = "1";
 
-        Debug.Log($"[AutoTestBuilder] iOS Team ID: {teamId}");
+            Debug.Log($"[AutoTestBuilder] iOS Team ID: {teamId}");
 
-        var options = new BuildPlayerOptions
-        {
-            scenes = GetScenes(),
-            locationPathName = $"{BuildDir}/iOS",
-            target = BuildTarget.iOS,
-            options = BuildOptions.None,
-        };
+            var options = new BuildPlayerOptions
+            {
+                scenes = GetScenes(),
+                locationPathName = $"{BuildDir}/iOS",
+                target = BuildTarget.iOS,
+                options = BuildOptions.None,
+            };
 
-        RunBuild(options, "iOS");
+            RunBuild(options, "iOS");
+        });
     }
 
     // ================================================================
     // Internals
     // ================================================================
 
-    static void Setup(BuildTargetGroup group)
+    /// <summary>
+    /// 保存 Player/Editor 设置，调用 build 动作，然后恢复原值。
+    /// 避免 CLI 构建污染开发者本地项目（company/product/defines 等被持久化）。
+    /// </summary>
+    static void RunWithRestoredSettings(BuildTargetGroup group, Action build)
     {
-        Debug.Log($"[AutoTestBuilder] Setting up for {group}");
+        var savedCompany = PlayerSettings.companyName;
+        var savedProduct = PlayerSettings.productName;
+#pragma warning disable CS0618
+        var savedDefines = PlayerSettings.GetScriptingDefineSymbolsForGroup(group);
+#pragma warning restore CS0618
 
-        // Add test define
-        AddDefine(group, TestDefine);
+        try
+        {
+            Debug.Log($"[AutoTestBuilder] Setting up for {group}");
+            PlayerSettings.companyName = "BaseCityTest";
+            PlayerSettings.productName = "curl-unity-test";
+            AddDefine(group, TestDefine);
 
-        // Common settings
-        PlayerSettings.companyName = "BaseCityTest";
-        PlayerSettings.productName = "curl-unity-test";
+            build();
+        }
+        finally
+        {
+            PlayerSettings.companyName = savedCompany;
+            PlayerSettings.productName = savedProduct;
+#pragma warning disable CS0618
+            PlayerSettings.SetScriptingDefineSymbolsForGroup(group, savedDefines);
+#pragma warning restore CS0618
+            Debug.Log($"[AutoTestBuilder] Restored PlayerSettings for {group}");
+        }
     }
 
     static void AddDefine(BuildTargetGroup group, string define)

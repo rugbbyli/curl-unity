@@ -34,7 +34,8 @@ WIN_SSH=user@host ./scripts/device-test.sh windows --build
 |------|------|---------|
 | ADB | 设备通信 | Android SDK Platform Tools |
 
-ADB 路径默认为 `/Users/ly/bin/Android/sdk/platform-tools/adb`，可通过 `ADB` 环境变量覆盖。
+ADB 查找顺序：`ADB` 环境变量 → `$ANDROID_SDK_ROOT/platform-tools/adb` → `$ANDROID_HOME/platform-tools/adb` → `PATH` 中的 `adb`。
+常规开发环境将 Android SDK Platform Tools 加入 PATH 即可；如果 SDK 在非标准位置，通过 `ADB=/path/to/adb ./scripts/device-test.sh android` 指定。
 
 ### iOS
 
@@ -231,7 +232,7 @@ WIN_SSH=developer@192.168.0.170 ./scripts/device-test.sh windows --build
 
 **Windows 执行流程**：
 1. macOS 上 Unity 交叉编译 → `Build/Windows/curl-unity-test.exe`
-2. `tar` 压缩 + `sftp` 传输到 Windows（`scp` 在 Windows OpenSSH 上不可靠）
+2. `tar` 压缩 + `scp -q` 传输到 Windows（整目录打成 tar.gz 再传，避免逐文件 RTT 累积）
 3. SSH 执行 `Start-Process`（脱离 SSH 会话，app 不会随 SSH 断连而终止）
 4. 轮询 Windows 端的 `Player.log`，检测 `[CURL_TEST] END`
 
@@ -241,7 +242,6 @@ WIN_SSH=developer@192.168.0.170 ./scripts/device-test.sh windows --build
   # 在 Windows 上以管理员身份运行
   Add-MpPreference -ExclusionPath 'C:\Users\<user>\curl-unity-test'
   ```
-- SSH 传输使用 `sftp`（`scp` 在部分 Windows OpenSSH 版本上大文件传输不稳定）
 
 ## 文件结构
 

@@ -32,7 +32,19 @@ USE_LOCAL_SYNC=false
 TIMEOUT=120
 UNITY_VERSION="2022.3.62f3"
 UNITY_APP="/Applications/Unity/Hub/Editor/$UNITY_VERSION/Unity.app/Contents/MacOS/Unity"
-ADB="${ADB:-/Users/ly/bin/Android/sdk/platform-tools/adb}"
+
+# ADB: prefer $ADB env var, else $ANDROID_SDK_ROOT/$ANDROID_HOME platform-tools,
+# else rely on PATH. Users can override with: ADB=/path/to/adb ./device-test.sh android
+if [[ -z "${ADB:-}" ]]; then
+    if [[ -n "${ANDROID_SDK_ROOT:-}" && -x "$ANDROID_SDK_ROOT/platform-tools/adb" ]]; then
+        ADB="$ANDROID_SDK_ROOT/platform-tools/adb"
+    elif [[ -n "${ANDROID_HOME:-}" && -x "$ANDROID_HOME/platform-tools/adb" ]]; then
+        ADB="$ANDROID_HOME/platform-tools/adb"
+    else
+        ADB="adb"
+    fi
+fi
+
 PACKAGE_NAME="com.basecity.curlunitytest"
 WIN_SSH="${WIN_SSH:-developer@192.168.0.170}"
 WIN_REMOTE_DIR="curl-unity-test"
@@ -62,7 +74,21 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$PLATFORM" ]]; then
-    echo "Usage: $0 <macos|android|ios> [--build] [--skip-sync] [--timeout N]"
+    cat <<USAGE
+Usage: $0 <macos|android|ios|windows> [options]
+
+Options:
+  --build         Run Unity build before deploying (default: use existing build)
+  --skip-sync     Skip sync-plugins.sh step
+  --local         Use local sync mode (sync Plugins from ../output instead of CI)
+  --timeout <s>   Seconds to wait for test completion (default: 120)
+  --unity <ver>   Unity version to use (default: 2022.3.62f3)
+
+Environment:
+  ADB                 adb binary path (auto-detected from ANDROID_SDK_ROOT / ANDROID_HOME / PATH)
+  UNITY_IOS_TEAM_ID   Apple Developer Team ID (required for iOS)
+  WIN_SSH             SSH target for Windows remote run (e.g. user@host)
+USAGE
     exit 1
 fi
 
@@ -348,7 +374,12 @@ ios)
 
         step "Compiling Xcode project"
 
-        TEAM_ID="${UNITY_IOS_TEAM_ID:-6387VP2XPL}"
+        if [[ -z "${UNITY_IOS_TEAM_ID:-}" ]]; then
+            err "UNITY_IOS_TEAM_ID is not set"
+            err "Set your Apple Developer Team ID: UNITY_IOS_TEAM_ID=XXXXXXXXXX $0 ios --build"
+            exit 2
+        fi
+        TEAM_ID="$UNITY_IOS_TEAM_ID"
         log "Team ID: $TEAM_ID"
 
         xcodebuild \

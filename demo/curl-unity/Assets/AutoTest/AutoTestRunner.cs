@@ -34,8 +34,8 @@ public class AutoTestRunner : MonoBehaviour
     {
         // Only activate when explicitly requested — normal app launch won't trigger tests.
         // Detection methods (in order):
-        //   1. Command-line arg "-autotest" (macOS, Windows, iOS via idevicedebug)
-        //   2. Marker file ".autotest" in persistentDataPath (Android via adb)
+        //   1. Command-line arg "-autotest" (macOS, Windows, Android via `am start -e autotest 1`)
+        //   2. Environment variable CURL_UNITY_AUTOTEST=1 (iOS via idevicedebug -e)
         if (!DetectAutoTestRequest()) return;
 
         var go = new GameObject("__AutoTestRunner__");
@@ -67,7 +67,7 @@ public class AutoTestRunner : MonoBehaviour
         try { File.Delete(_resultPath); } catch { }
         Log($"INFO results_file={_resultPath}");
 
-        var tests = new List<(string name, Func<CurlHttpClient, Task> run)>
+        var tests = new List<(string name, Func<CurlHttpClient, CancellationToken, Task> run)>
         {
             ("GET_Basic",        TestGetBasic),
             ("POST_Json",        TestPostJson),
@@ -97,18 +97,21 @@ public class AutoTestRunner : MonoBehaviour
         {
             Log($"RUN {name}");
             var sw = Stopwatch.StartNew();
+            using var cts = new CancellationTokenSource(perTestTimeoutMs);
             try
             {
-                using var cts = new CancellationTokenSource(perTestTimeoutMs);
-                var testTask = run(client);
-                var completed = await Task.WhenAny(testTask, Task.Delay(perTestTimeoutMs, cts.Token));
-                if (completed != testTask)
-                    throw new TimeoutException($"Test timed out after {perTestTimeoutMs}ms");
-                await testTask; // propagate exceptions
-                cts.Cancel();   // cancel the delay task
+                // Token 传到测试里，让 GetAsync/SendAsync 在超时时真的取消底层请求，
+                // 避免挂起的 curl 连接拖累后续用例。
+                await run(client, cts.Token);
                 sw.Stop();
                 Log($"PASS {name} {sw.ElapsedMilliseconds}ms");
                 passed++;
+            }
+            catch (OperationCanceledException) when (cts.IsCancellationRequested)
+            {
+                sw.Stop();
+                Log($"FAIL {name} {sw.ElapsedMilliseconds}ms Test timed out after {perTestTimeoutMs}ms");
+                failed++;
             }
             catch (SkipException ex)
             {
@@ -147,18 +150,18 @@ public class AutoTestRunner : MonoBehaviour
     // Test cases
     // ================================================================
 
-    static async Task TestGetBasic(CurlHttpClient client)
+    static async Task TestGetBasic(CurlHttpClient client, CancellationToken ct)
     {
-        using var resp = await client.GetAsync("https://httpbin.org/get");
+        using var resp = await client.GetAsync("https://httpbin.org/get", ct);
         Assert(resp.HasResponse, $"No response: err={resp.ErrorCode} {resp.ErrorMessage}");
         Assert(resp.StatusCode == 200, $"Expected 200, got {resp.StatusCode}");
         Assert(resp.Body != null && resp.Body.Length > 0, "Empty body");
     }
 
-    static async Task TestPostJson(CurlHttpClient client)
+    static async Task TestPostJson(CurlHttpClient client, CancellationToken ct)
     {
         var json = "{\"test\":\"hello\",\"num\":42}";
-        using var resp = await client.PostJsonAsync("https://httpbin.org/post", json);
+        using var resp = await client.PostJsonAsync("https://httpbin.org/post", json, ct);
         Assert(resp.HasResponse, $"No response: err={resp.ErrorCode} {resp.ErrorMessage}");
         Assert(resp.StatusCode == 200, $"Expected 200, got {resp.StatusCode}");
         var body = Encoding.UTF8.GetString(resp.Body);
@@ -166,7 +169,7 @@ public class AutoTestRunner : MonoBehaviour
         Assert(body.Contains("hello"), "Response missing posted value");
     }
 
-    static async Task TestHttpsVerify(CurlHttpClient client)
+    static async Task TestHttpsVerify(CurlHttpClient client, CancellationToken ct)
     {
         // This is the most important platform-specific test:
         // - macOS/iOS: uses Apple SecTrust with system cert store
@@ -175,7 +178,7 @@ public class AutoTestRunner : MonoBehaviour
         client.VerifySSL = true;
         try
         {
-            using var resp = await client.GetAsync("https://www.example.com/");
+            using var resp = await client.GetAsync("https://www.example.com/", ct);
             Assert(resp.HasResponse,
                 $"HTTPS verification failed: err={resp.ErrorCode} {resp.ErrorMessage}");
             Assert(resp.StatusCode == 200, $"Expected 200, got {resp.StatusCode}");
@@ -186,13 +189,13 @@ public class AutoTestRunner : MonoBehaviour
         }
     }
 
-    static async Task TestHttp2(CurlHttpClient client)
+    static async Task TestHttp2(CurlHttpClient client, CancellationToken ct)
     {
         var saved = client.PreferredVersion;
         client.PreferredVersion = HttpVersion.Http2;
         try
         {
-            using var resp = await client.GetAsync("https://httpbin.org/get");
+            using var resp = await client.GetAsync("https://httpbin.org/get", ct);
             Assert(resp.HasResponse, $"No response: err={resp.ErrorCode} {resp.ErrorMessage}");
             // HTTP/2 = enum value 3
             Assert((int)resp.Version >= 3,
@@ -204,14 +207,14 @@ public class AutoTestRunner : MonoBehaviour
         }
     }
 
-    static async Task TestResponseHeaders(CurlHttpClient client)
+    static async Task TestResponseHeaders(CurlHttpClient client, CancellationToken ct)
     {
         var request = new HttpRequest
         {
             Url = "https://httpbin.org/response-headers?X-Curl-Test=hello123",
             EnableResponseHeaders = true
         };
-        using var resp = await client.SendAsync(request);
+        using var resp = await client.SendAsync(request, ct);
         Assert(resp.HasResponse, $"No response: err={resp.ErrorCode} {resp.ErrorMessage}");
         Assert(resp.StatusCode == 200, $"Expected 200, got {resp.StatusCode}");
         Assert(resp.Headers != null, "Headers dict is null");
@@ -221,9 +224,9 @@ public class AutoTestRunner : MonoBehaviour
             $"X-Curl-Test value mismatch: {string.Join(",", values)}");
     }
 
-    static async Task TestRedirect(CurlHttpClient client)
+    static async Task TestRedirect(CurlHttpClient client, CancellationToken ct)
     {
-        using var resp = await client.GetAsync("https://httpbin.org/redirect/3");
+        using var resp = await client.GetAsync("https://httpbin.org/redirect/3", ct);
         Assert(resp.HasResponse, $"No response: err={resp.ErrorCode} {resp.ErrorMessage}");
         Assert(resp.StatusCode == 200, $"Expected 200 after redirects, got {resp.StatusCode}");
         Assert(resp.RedirectCount >= 3,
@@ -232,44 +235,45 @@ public class AutoTestRunner : MonoBehaviour
             $"Unexpected final URL: {resp.EffectiveUrl}");
     }
 
-    static async Task TestTimeout(CurlHttpClient client)
+    static async Task TestTimeout(CurlHttpClient client, CancellationToken ct)
     {
         var request = new HttpRequest
         {
             Url = "https://httpbin.org/delay/30",
             TimeoutMs = 2000
         };
-        using var resp = await client.SendAsync(request);
+        using var resp = await client.SendAsync(request, ct);
         Assert(!resp.HasResponse, "Expected timeout but got response");
         // CURLE_OPERATION_TIMEDOUT = 28
         Assert(resp.ErrorCode == 28,
             $"Expected CURLE_OPERATION_TIMEDOUT (28), got {resp.ErrorCode}: {resp.ErrorMessage}");
     }
 
-    static async Task TestCancel(CurlHttpClient client)
+    static async Task TestCancel(CurlHttpClient client, CancellationToken ct)
     {
-        using var cts = new CancellationTokenSource(500);
+        // Link outer ct with a local 500ms cancellation so external timeout still works.
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        linked.CancelAfter(500);
         bool cancelled = false;
         try
         {
             var request = new HttpRequest { Url = "https://httpbin.org/delay/30" };
-            using var resp = await client.SendAsync(request, cts.Token);
+            using var resp = await client.SendAsync(request, linked.Token);
             // Should not reach here
             Assert(false, $"Request completed instead of being cancelled, status={resp.StatusCode}");
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            // TaskCanceledException inherits from OperationCanceledException,
-            // so this catches both
+            // Local 500ms cancellation fired; outer timeout hasn't — this is the expected path.
             cancelled = true;
         }
         Assert(cancelled, "Expected cancellation exception");
     }
 
-    static async Task TestLargeResponse(CurlHttpClient client)
+    static async Task TestLargeResponse(CurlHttpClient client, CancellationToken ct)
     {
         const int expectedSize = 102400; // 100KB
-        using var resp = await client.GetAsync($"https://httpbin.org/bytes/{expectedSize}");
+        using var resp = await client.GetAsync($"https://httpbin.org/bytes/{expectedSize}", ct);
         Assert(resp.HasResponse, $"No response: err={resp.ErrorCode} {resp.ErrorMessage}");
         Assert(resp.StatusCode == 200, $"Expected 200, got {resp.StatusCode}");
         Assert(resp.Body != null, "Body is null");
@@ -278,12 +282,12 @@ public class AutoTestRunner : MonoBehaviour
             $"Body size mismatch: expected ~{expectedSize}, got {resp.Body.Length}");
     }
 
-    static async Task TestConcurrent(CurlHttpClient client)
+    static async Task TestConcurrent(CurlHttpClient client, CancellationToken ct)
     {
         const int count = 5;
         var tasks = new Task<IHttpResponse>[count];
         for (int i = 0; i < count; i++)
-            tasks[i] = client.GetAsync($"https://httpbin.org/get?idx={i}");
+            tasks[i] = client.GetAsync($"https://httpbin.org/get?idx={i}", ct);
 
         var responses = await Task.WhenAll(tasks);
         int successCount = 0;
@@ -304,7 +308,7 @@ public class AutoTestRunner : MonoBehaviour
         }
     }
 
-    static async Task TestConnectionReuse(CurlHttpClient client)
+    static async Task TestConnectionReuse(CurlHttpClient client, CancellationToken ct)
     {
         // Reset diagnostics to get clean stats for this test
         client.Diagnostics?.Reset();
@@ -312,7 +316,7 @@ public class AutoTestRunner : MonoBehaviour
         // 5 sequential requests to the same host should reuse connections
         for (int i = 0; i < 5; i++)
         {
-            using var resp = await client.GetAsync("https://httpbin.org/get");
+            using var resp = await client.GetAsync("https://httpbin.org/get", ct);
             Assert(resp.HasResponse, $"Request {i} failed: err={resp.ErrorCode}");
         }
 
@@ -326,7 +330,7 @@ public class AutoTestRunner : MonoBehaviour
         }
     }
 
-    static async Task TestDnsFailure(CurlHttpClient client)
+    static async Task TestDnsFailure(CurlHttpClient client, CancellationToken ct)
     {
         // Use a short timeout — some networks DNS-hijack invalid domains,
         // causing long connection attempts instead of immediate DNS failure
@@ -335,7 +339,7 @@ public class AutoTestRunner : MonoBehaviour
             Url = "http://this.host.does.not.exist.invalid/",
             TimeoutMs = 5000
         };
-        using var resp = await client.SendAsync(request);
+        using var resp = await client.SendAsync(request, ct);
         Assert(!resp.HasResponse,
             $"Expected failure but got HTTP {resp.StatusCode}");
         Assert(resp.ErrorCode != 0,
