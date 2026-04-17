@@ -14,7 +14,19 @@
              Link="RuntimeSources/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
-<!-- Test dependencies -->
+  <!-- Native library from Plugins/ (same binary that ships in the package) -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+    <None Include="../../Packages/com.basecity.curl-unity/Runtime/Plugins/macOS/libcurl_unity.dylib"
+          CopyToOutputDirectory="PreserveNewest"
+          Link="libcurl_unity.dylib" />
+  </ItemGroup>
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <None Include="../../Packages/com.basecity.curl-unity/Runtime/Plugins/Windows/x86_64/libcurl_unity.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          Link="libcurl_unity.dll" />
+  </ItemGroup>
+
+  <!-- Test dependencies -->
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
     <PackageReference Include="xunit" Version="2.*" />
