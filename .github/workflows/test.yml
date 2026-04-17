@@ -1,5 +1,6 @@
-# 当前仅做 C# 编译检查 (dotnet build)，确保 Runtime 源码无语法/类型错误。
-# TODO: 补充 xUnit 集成测试用例，启用 dotnet test 运行。
+# 运行 xUnit 集成测试套件。
+# 测试编译本身覆盖了 Runtime 源码的语法/类型检查，因此不再额外跑 compile-check。
+# 当前 macOS runner 跑 ARM64 dylib。后续可加 Windows matrix 扩展覆盖。
 
 name: Test
 
@@ -9,16 +10,16 @@ on:
     branches: [master]
 
 jobs:
-  compile-check:
-    runs-on: ubuntu-latest
+  integration-test:
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          lfs: false
+          lfs: true   # 需要 Plugins/ 下的 dylib 二进制
 
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '9.0.x'
 
-      - name: Compile C# package
-        run: dotnet build tests/CurlUnity.IntegrationTests/CurlUnity.IntegrationTests.csproj --configuration Release
+      - name: Run xUnit integration tests
+        run: dotnet test tests/CurlUnity.IntegrationTests/CurlUnity.IntegrationTests.csproj --configuration Release --logger "console;verbosity=normal"

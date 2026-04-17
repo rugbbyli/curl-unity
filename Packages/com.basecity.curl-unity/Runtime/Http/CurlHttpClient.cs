@@ -10,6 +10,17 @@ using CurlUnity.Native;
 
 namespace CurlUnity.Http
 {
+    /// <summary>
+    /// libcurl 的 HTTP 客户端实现。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>代理行为：</b>本客户端默认不使用代理，并显式屏蔽 libcurl 对
+    /// <c>HTTPS_PROXY</c> / <c>HTTP_PROXY</c> 等环境变量的自动读取，避免
+    /// 开发/宿主机上的代理泄漏到业务网络配置，且 HTTP/3 本身无法经由 HTTP 代理。
+    /// 显式代理支持作为独立特性后续提供（见项目 Roadmap 的 Proxy 任务）。
+    /// </para>
+    /// </remarks>
     public class CurlHttpClient : IHttpClient
     {
         private readonly CurlBackgroundWorker _worker;
@@ -114,6 +125,11 @@ namespace CurlUnity.Http
 
             // URL
             CurlNative.curl_unity_setopt_string(h, CurlNative.CURLOPT_URL, request.Url);
+
+            // 禁用 libcurl 默认读取 HTTPS_PROXY/HTTP_PROXY 环境变量的行为，避免
+            // 进程环境泄漏到网络配置（且 HTTP/3 本身无法经由 HTTP 代理）。
+            // 显式 Proxy 支持后续作为独立特性开放。
+            CurlNative.curl_unity_setopt_string(h, CurlNative.CURLOPT_PROXY, "");
 
             // 多线程环境必须禁用信号，避免 Unix 下 SIGALRM 干扰其他线程
             CurlNative.curl_unity_setopt_long(h, CurlNative.CURLOPT_NOSIGNAL, 1);
