@@ -99,27 +99,52 @@ log()  { echo "==> $*"; }
 err()  { echo "ERROR: $*" >&2; }
 step() { echo ""; echo "--- $* ---"; }
 
+# Pipe a streaming command's stdout into wait_for_tests and guarantee the
+# streamer exits even if it doesn't honor SIGPIPE when idle (observed with
+# `adb logcat` and `idevicedebug`, which buffer/re-pump and can't tell that
+# the reader went away once END has been seen).
+#
+# Usage: stream_to_tests <cmd> [args...]
+stream_to_tests() {
+    local fifo streamer_pid rc
+    fifo=$(mktemp -u -t curl-test.XXXXXX)
+    mkfifo "$fifo"
+    "$@" > "$fifo" 2>&1 &
+    streamer_pid=$!
+    wait_for_tests < "$fifo"
+    rc=$?
+    kill "$streamer_pid" 2>/dev/null || true
+    wait "$streamer_pid" 2>/dev/null || true
+    rm -f "$fifo"
+    return $rc
+}
+
 wait_for_tests() {
-    # Read lines from stdin, output [CURL_TEST] lines, stop at END or timeout
+    # Read lines from stdin, output [CURL_TEST] lines, stop at END or timeout.
+    #
+    # 使用 `read -t` 的短轮询超时，保证当上游测试 app hang 住没有输出时，
+    # 我们依然能在 TIMEOUT 秒后主动退出，不会被 `read` 无限阻塞。
+    # （之前版本的 deadline 检查在 read 之后，对"静默挂起"场景失效。）
     local deadline=$(( $(date +%s) + TIMEOUT ))
     local end_seen=false
     local result_file="$BUILD_DIR/test-results-$PLATFORM.log"
     : > "$result_file"
 
-    while IFS= read -r line; do
-        # Only output [CURL_TEST] lines
-        if [[ "$line" == *"[CURL_TEST]"* ]]; then
-            # Extract the [CURL_TEST] part
-            local test_line="${line##*\[CURL_TEST\] }"
-            echo "[CURL_TEST] $test_line"
-            echo "[CURL_TEST] $test_line" >> "$result_file"
+    while true; do
+        if IFS= read -r -t 5 line; then
+            if [[ "$line" == *"[CURL_TEST]"* ]]; then
+                local test_line="${line##*\[CURL_TEST\] }"
+                echo "[CURL_TEST] $test_line"
+                echo "[CURL_TEST] $test_line" >> "$result_file"
 
-            if [[ "$test_line" == END* ]]; then
-                end_seen=true
-                break
+                if [[ "$test_line" == END* ]]; then
+                    end_seen=true
+                    break
+                fi
             fi
         fi
-
+        # Whether read succeeded, timed out, or hit EOF — always check the
+        # wall-clock deadline so a silent-hang can't keep us blocked forever.
         if (( $(date +%s) > deadline )); then
             echo "[CURL_TEST] TIMEOUT after ${TIMEOUT}s"
             break
@@ -244,12 +269,11 @@ macos)
     # Wait a moment for app to start writing logs
     sleep 2
 
-    # Tail the log file and pipe through test parser
-    # Disable pipefail: tail gets SIGPIPE (141) when wait_for_tests closes the pipe — that's normal
-    set +o pipefail
-    tail -f "$LOG_FILE" 2>/dev/null | wait_for_tests
+    # Tail the log file and parse for test results. Using stream_to_tests
+    # so the tail process is explicitly killed after END — robust even if
+    # the app crashes early and tail has no data to write (no SIGPIPE).
+    stream_to_tests tail -n 0 -f "$LOG_FILE"
     exit_code=$?
-    set -o pipefail
 
     # Kill the app if still running
     pkill -f "curl-unity-test" 2>/dev/null || true
@@ -347,11 +371,12 @@ android)
     log "Launching app..."
     "$ADB" shell am start -n "$PACKAGE_NAME/com.unity3d.player.UnityPlayerActivity" -e unity '"-autotest"'
 
-    # Capture logcat filtered to Unity tag
-    set +o pipefail
-    "$ADB" logcat -s Unity:V *:S 2>&1 | wait_for_tests
+    # Capture logcat filtered to Unity tag.
+    # adb logcat does NOT exit on SIGPIPE when idle (seen after test END when
+    # the app stops writing Unity: lines), so we wrap it in stream_to_tests
+    # which kills the process explicitly after wait_for_tests returns.
+    stream_to_tests "$ADB" logcat -s Unity:V '*:S'
     exit_code=$?
-    set -o pipefail
 
     # Stop app
     "$ADB" shell am force-stop "$PACKAGE_NAME" 2>/dev/null || true
@@ -435,10 +460,14 @@ ios)
     # Launch via idevicedebug (streams stdout — works on all iOS versions, no DeviceSupport needed)
     if command -v idevicedebug &>/dev/null; then
         log "Launching via idevicedebug (stdout capture)..."
-        set +o pipefail
-        idevicedebug ${IOS_UDID:+-u "$IOS_UDID"} -e CURL_UNITY_AUTOTEST=1 run "$PACKAGE_NAME" 2>&1 | wait_for_tests
+        # idevicedebug, like adb logcat, doesn't always exit on SIGPIPE once
+        # the app stops producing output — wrap in stream_to_tests for reliable cleanup.
+        if [[ -n "$IOS_UDID" ]]; then
+            stream_to_tests idevicedebug -u "$IOS_UDID" -e CURL_UNITY_AUTOTEST=1 run "$PACKAGE_NAME"
+        else
+            stream_to_tests idevicedebug -e CURL_UNITY_AUTOTEST=1 run "$PACKAGE_NAME"
+        fi
         exit_code=$?
-        set -o pipefail
 
         # iOS 上 Application.Quit() 无效，需要主动停止 app
         idevicedebug kill "$PACKAGE_NAME" 2>/dev/null || true
