@@ -78,19 +78,25 @@ namespace CurlUnity.Core
         {
             if (Interlocked.Exchange(ref _disposedFlag, 1) != 0) return;
 
-            if (_handle != IntPtr.Zero)
+            if (_handle == IntPtr.Zero) return;
+
+            var rc = _api.ShareCleanup(_handle);
+            if (rc == CurlNative.CURLSHE_OK)
             {
-                var rc = _api.ShareCleanup(_handle);
-                if (rc != CurlNative.CURLSHE_OK)
-                {
-                    CurlLog.Error(
-                        $"curl_share_cleanup failed (code {rc}): {_api.GetShareErrorString(rc)}. " +
-                        "This usually means an easy handle was still associated with the share — check CurlHttpClient.Dispose ordering.");
-                }
                 _handle = IntPtr.Zero;
+                if (_selfHandle.IsAllocated) _selfHandle.Free();
+                return;
             }
 
-            if (_selfHandle.IsAllocated) _selfHandle.Free();
+            // cleanup 失败通常是 CURLSHE_IN_USE —— 仍有 easy handle 挂在 share 上。
+            // 此时 libcurl 后续可能继续调 lock/unlock 回调，回调里要用 USERDATA
+            // (GCHandle) 去 FromIntPtr。如果这里 Free 掉 GCHandle、handle 置零，
+            // 下一次回调就会踩一个无效 handle，大概率 crash。
+            // 宁可泄漏 share handle + GCHandle，也别引入 use-after-free。
+            CurlLog.Error(
+                $"curl_share_cleanup failed (code {rc}): {_api.GetShareErrorString(rc)}. " +
+                "Leaking the share handle and its GCHandle to avoid UAF from lock/unlock callbacks. " +
+                "This usually indicates an easy handle is still associated with the share — check CurlHttpClient.Dispose ordering.");
         }
 
         private void Check(string name, int rc)
