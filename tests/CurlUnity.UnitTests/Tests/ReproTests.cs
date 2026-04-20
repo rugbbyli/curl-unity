@@ -44,17 +44,10 @@ namespace CurlUnity.UnitTests.Tests
             using var client = new CurlHttpClient(api);
 
             var task = client.GetAsync("http://example.invalid/");
-            try
-            {
-                var completed = await Task.WhenAny(task, Task.Delay(300));
-                Assert.Same(task, completed);
-                await Assert.ThrowsAsync<InvalidOperationException>(() => task);
-            }
-            finally
-            {
-                client.Dispose();
-                try { await task; } catch { }
-            }
+            var completed = await Task.WhenAny(task, Task.Delay(300));
+            Assert.Same(task, completed);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => task);
+            // `using` 自动 Dispose，无需显式再调一次；fault 后的 task 也不需要再 await。
         }
 
         [Fact]
