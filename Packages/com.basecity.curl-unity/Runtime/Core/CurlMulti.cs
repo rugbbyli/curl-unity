@@ -276,17 +276,54 @@ namespace CurlUnity.Core
             // multi 传进来一个不由我们管理的 easy handle（不该发生，防御）
             // —— 记录告警并直接 remove 该 handle，避免把 null/garbage 指针
             // 喂给 GCHandle.FromIntPtr 导致 crash。
-            var rc = _api.GetInfoString(easyHandle, CurlNative.CURLINFO_PRIVATE, out var ptr);
-            if (rc != CurlNative.CURLE_OK || ptr == IntPtr.Zero)
+            var rcInfo = _api.GetInfoString(easyHandle, CurlNative.CURLINFO_PRIVATE, out var ptr);
+            if (rcInfo != CurlNative.CURLE_OK || ptr == IntPtr.Zero)
             {
                 CurlLog.Error(
                     $"ProcessCompletion: failed to resolve CurlRequest from easy handle " +
-                    $"(CURLINFO_PRIVATE rc={rc}, ptr={ptr}). Removing stray handle from multi.");
-                _api.MultiRemoveHandle(_multi, easyHandle);
+                    $"(CURLINFO_PRIVATE rc={rcInfo}, ptr={ptr}). Removing stray handle from multi.");
+                var removeRc = _api.MultiRemoveHandle(_multi, easyHandle);
+                if (removeRc != CurlNative.CURLE_OK)
+                {
+                    CurlLog.Error(
+                        $"ProcessCompletion: curl_multi_remove_handle returned {removeRc} " +
+                        $"({_api.GetMultiErrorString(removeRc)}) while removing stray handle from multi. " +
+                        $"Handle may remain attached and leak until multi cleanup or process exit.");
+                }
                 return;
             }
 
             var request = (CurlRequest)GCHandle.FromIntPtr(ptr).Target;
+
+            // Remove FIRST so we can decide safely whether to transfer handle ownership.
+            // 如果 MultiRemoveHandle 失败，multi 仍持有此 easy handle，下游再调
+            // curl_easy_cleanup 就是 UAF。采取 leak-over-crash：让 request 留在
+            // _activeRequests 里，通过 FailureException 通知上层 Task 失败，
+            // easy handle 继续 attached，由 multi.Dispose（或进程退出）兜底回收。
+            var rcRemove = _api.MultiRemoveHandle(_multi, easyHandle);
+            if (rcRemove != CurlNative.CURLE_OK)
+            {
+                CurlLog.Error(
+                    $"ProcessCompletion: curl_multi_remove_handle returned {rcRemove} " +
+                    $"({_api.GetMultiErrorString(rcRemove)}); not transferring easy handle ownership. " +
+                    $"Request will complete with an error and the handle will stay attached to multi.");
+
+                var failResp = new CurlResponse
+                {
+                    FailureException = new InvalidOperationException(
+                        $"curl_multi_remove_handle returned {rcRemove} during completion. " +
+                        $"Handle leaked to avoid use-after-free."),
+                    // EasyHandle 不转移所有权 → 保持 IntPtr.Zero
+                };
+
+                try { request.OnComplete?.Invoke(failResp); }
+                catch (Exception cbEx) { CurlLog.Warn($"OnComplete threw during fail-complete: {cbEx}"); }
+
+                // 释放我们持有的辅助资源（GCHandle、slist、buffers），_handleTransferred
+                // 标志让后续 Dispose 跳过 EasyCleanup。request 仍留在 _activeRequests。
+                request.ReleaseBuffers();
+                return;
+            }
 
             _activeRequests.Remove(request);
 
@@ -300,8 +337,6 @@ namespace CurlUnity.Core
                 RawHeaders = request.HeaderBuffer?.ToArray(),
                 EasyHandle = request.Handle  // 所有权转移
             };
-
-            _api.MultiRemoveHandle(_multi, easyHandle);
 
             try { request.OnComplete?.Invoke(response); }
             catch (Exception) { /* TODO: 接入日志系统 */ }

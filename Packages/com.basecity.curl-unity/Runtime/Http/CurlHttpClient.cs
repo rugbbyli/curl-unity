@@ -154,7 +154,22 @@ namespace CurlUnity.Http
                 kv.Value.Dispose();
             _cancellations.Clear();
 
-            CurlGlobal.Release(_api);
+            // 只有在 worker 线程确实已退出的情况下才敢 Release 全局引用计数。
+            // 否则可能触发 curl_global_cleanup 时 worker 仍在 libcurl 内部
+            // （被用户回调卡住），与 global state 发生 use-after-free。
+            // 与 Worker 里"跳过 multi cleanup"的策略保持一致：泄漏全局 init
+            // 一次不会因为还有其它 client 而立刻触发 cleanup 的也只是推迟；
+            // 如果本进程本来就要退出，OS 回收也足够。
+            if (_worker.WorkerExitedCleanly)
+            {
+                CurlGlobal.Release(_api);
+            }
+            else
+            {
+                CurlLog.Error(
+                    "CurlHttpClient.Dispose: worker did not exit cleanly; skipping CurlGlobal.Release to avoid " +
+                    "curl_global_cleanup racing with the worker thread that is still inside libcurl.");
+            }
         }
 
         private CurlRequest BuildCurlRequest(IHttpRequest request)

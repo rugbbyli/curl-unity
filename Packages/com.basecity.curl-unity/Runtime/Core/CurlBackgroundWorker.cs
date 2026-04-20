@@ -101,6 +101,15 @@ namespace CurlUnity.Core
         /// 契约：<c>CurlUnity.Http.IHttpRequest.OnDataReceived</c> 必须快速返回。
         /// </para>
         /// </summary>
+        /// <summary>
+        /// <see cref="Dispose"/> 完成后，标识 worker 线程是否在 Join 超时前干净退出。
+        /// <c>false</c> 表示发生了"用户回调阻塞 + 跳过 cleanup"分支——调用方
+        /// 若依赖线程已不再访问 libcurl（例如准备 curl_global_cleanup），应据此
+        /// 跳过那些全局层的清理，以免与仍在 libcurl 内部的 worker 线程竞争。
+        /// Dispose 未被调用时值为 <c>true</c>。
+        /// </summary>
+        internal bool WorkerExitedCleanly { get; private set; } = true;
+
         public void Dispose()
         {
             // Interlocked 保证并发调用只有一个进入清理分支。
@@ -111,6 +120,7 @@ namespace CurlUnity.Core
 
             var joinTimeout = PollTimeoutMs * 2 + 500;
             var workerExited = _thread?.Join(joinTimeout) ?? true;
+            WorkerExitedCleanly = workerExited;
 
             // 排空未提交到 multi 的请求
             while (_pendingRequests.TryDequeue(out var request))
