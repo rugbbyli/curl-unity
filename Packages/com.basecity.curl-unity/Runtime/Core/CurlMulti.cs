@@ -284,7 +284,28 @@ namespace CurlUnity.Core
                 var request = (CurlRequest)GCHandle.FromIntPtr(userdata).Target;
                 var buffer = new byte[totalBytes];
                 Marshal.Copy(ptr, buffer, 0, totalBytes);
-                request.HeaderBuffer?.Write(buffer, 0, totalBytes);
+
+                // FOLLOWLOCATION=1 下，libcurl 会为重定向链里每一次响应（中间
+                // 3xx 和最终响应）分别调用 header callback。每次响应都以一行
+                // 状态行 "HTTP/x.y NNN ..." 开头（HTTP/2、HTTP/3 也一样，libcurl
+                // 会合成相同形式的状态行送进来）。
+                //
+                // 遇到状态行就清空 HeaderBuffer，保证调用方看到的是最终响应
+                // 的 headers，而不是所有 hop 的拼接。HeaderBuffer 可能为 null
+                // （用户不关心响应头），此时只需略过写入。
+                //
+                // 依据: CURLOPT_HEADERFUNCTION 文档明确承诺
+                //   1) 每次调用送入一行完整 header
+                //   2) 状态行和 header 段尾的空行也算"header"
+                //   3) 回调会被所有响应调用而不只是最终响应
+                // HTTP header field-name（RFC 7230 token）不允许包含 '/'，所以
+                // 行首 5 字节等于 "HTTP/" 可以唯一识别状态行。
+                if (request.HeaderBuffer != null)
+                {
+                    if (IsHttpStatusLine(buffer, totalBytes))
+                        request.HeaderBuffer.SetLength(0);
+                    request.HeaderBuffer.Write(buffer, 0, totalBytes);
+                }
             }
             catch
             {
@@ -292,6 +313,16 @@ namespace CurlUnity.Core
             }
 
             return (UIntPtr)totalBytes;
+        }
+
+        private static bool IsHttpStatusLine(byte[] buffer, int length)
+        {
+            return length >= 5
+                && buffer[0] == (byte)'H'
+                && buffer[1] == (byte)'T'
+                && buffer[2] == (byte)'T'
+                && buffer[3] == (byte)'P'
+                && buffer[4] == (byte)'/';
         }
     }
 }
