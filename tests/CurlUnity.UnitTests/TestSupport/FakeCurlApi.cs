@@ -27,11 +27,20 @@ namespace CurlUnity.UnitTests.TestSupport
         public bool MultiCleanupCalledWhileCallbackInProgress { get; private set; }
 
         public Action<IntPtr> OnMultiPerform { get; set; }
-        public Action<IntPtr> OnMultiPoll { get; set; }
+
+        /// <summary>
+        /// 覆盖 <see cref="MultiPoll"/> 的默认行为。参数为 (multi handle, timeoutMs)。
+        /// 默认行为模拟真实 libcurl：等待被 <see cref="MultiWakeup"/> 唤醒或 timeoutMs 到期。
+        /// </summary>
+        public Action<IntPtr, int> OnMultiPoll { get; set; }
 
         private readonly Dictionary<IntPtr, FakeEasyHandleState> _easyHandles = new();
         private readonly Dictionary<IntPtr, FakeMultiHandleState> _multiHandles = new();
         private readonly Dictionary<IntPtr, List<string>> _sLists = new();
+
+        // 唤醒/超时信号，用于 MultiPoll 的默认实现。保持和 libcurl 一致的语义：
+        // 每次 poll 返回后自动复位，这样下一次 poll 又能阻塞直到 timeoutMs 或新的 wakeup。
+        private readonly ManualResetEventSlim _pollWakeup = new(false);
 
         public int CurlGlobalInit(long flags)
         {
@@ -223,7 +232,18 @@ namespace CurlUnity.UnitTests.TestSupport
             PollInProgress = true;
             try
             {
-                OnMultiPoll?.Invoke(multi);
+                if (OnMultiPoll != null)
+                {
+                    OnMultiPoll(multi, timeoutMs);
+                }
+                else
+                {
+                    // 默认行为：按 timeoutMs 阻塞，遇到 Wakeup 立刻返回。
+                    // 这和真实 libcurl 的合约一致，避免假 API 让测试做出错误的"poll 会永远
+                    // 阻塞"假设。
+                    _pollWakeup.Wait(timeoutMs);
+                    _pollWakeup.Reset();
+                }
                 numFds = 0;
                 return CurlNative.CURLE_OK;
             }
@@ -233,7 +253,11 @@ namespace CurlUnity.UnitTests.TestSupport
             }
         }
 
-        public int MultiWakeup(IntPtr multi) => CurlNative.CURLE_OK;
+        public int MultiWakeup(IntPtr multi)
+        {
+            _pollWakeup.Set();
+            return CurlNative.CURLE_OK;
+        }
 
         public int MultiInfoRead(IntPtr multi, out IntPtr easyHandle, out int result)
         {

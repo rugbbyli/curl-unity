@@ -60,6 +60,26 @@ namespace CurlUnity.Core
             _multi.Wakeup();
         }
 
+        /// <summary>
+        /// 释放 worker 线程和关联的 curl multi handle。
+        /// <para>
+        /// 正常情况下，<see cref="_multi.Wakeup"/> + worker 循环里的 <c>_stop</c>
+        /// 检查能让线程在下一次 poll 超时（<see cref="PollTimeoutMs"/> 毫秒）
+        /// 之内自然退出。我们给一个相当于 <c>2 × PollTimeoutMs + 500ms</c> 的
+        /// Join 超时作为上限。
+        /// </para>
+        /// <para>
+        /// 如果超时仍未退出，<b>几乎可以确定用户的 <c>OnDataReceived</c> 回调处于
+        /// 阻塞状态</b>——libcurl 自身的 <c>curl_multi_poll</c> 严格遵守其
+        /// timeoutMs，<c>curl_multi_perform</c> 的唯一长耗时来源就是用户回调。
+        /// 此时强行调 <c>curl_multi_cleanup</c> 会与仍在执行的回调线程竞争同一
+        /// multi/easy handle，产生 use-after-free。为此我们选择 <b>跳过 cleanup</b>
+        /// 并记录一条错误日志——multi handle 由 OS 在进程退出时回收。
+        /// </para>
+        /// <para>
+        /// 契约：<see cref="IHttpRequest.OnDataReceived"/> 必须快速返回。
+        /// </para>
+        /// </summary>
         public void Dispose()
         {
             // Interlocked 保证并发调用只有一个进入清理分支。
@@ -67,7 +87,9 @@ namespace CurlUnity.Core
 
             _stop = true;
             _multi.Wakeup();
-            _thread?.Join(3000);
+
+            var joinTimeout = PollTimeoutMs * 2 + 500;
+            var workerExited = _thread?.Join(joinTimeout) ?? true;
 
             // 排空未提交到 multi 的请求
             while (_pendingRequests.TryDequeue(out var request))
@@ -76,20 +98,37 @@ namespace CurlUnity.Core
             // 排空未处理的取消（对应请求仍在 multi 中，由 multi.Dispose 清理）
             while (_pendingCancels.TryDequeue(out _)) { }
 
-            _multi.Dispose();
+            if (workerExited)
+            {
+                _multi.Dispose();
+            }
+            else
+            {
+                CurlLog.Error(
+                    $"CurlBackgroundWorker.Dispose: worker thread did not exit within {joinTimeout}ms. " +
+                    "This usually indicates a user callback (e.g. HttpRequest.OnDataReceived) is blocking. " +
+                    "Skipping curl_multi_cleanup to avoid use-after-free — the multi handle will be reclaimed by the OS on process exit. " +
+                    "User callbacks must return promptly; long-running work should be dispatched to another thread.");
+            }
         }
 
         private void Run()
         {
             while (!_stop)
             {
-                while (_pendingRequests.TryDequeue(out var request))
+                // 在每次内层处理前检查 _stop，shutdown 时不再把剩余队列推进 multi。
+                while (!_stop && _pendingRequests.TryDequeue(out var request))
                     _multi.Send(request);
 
-                while (_pendingCancels.TryDequeue(out var request))
+                while (!_stop && _pendingCancels.TryDequeue(out var request))
                     _multi.Cancel(request);
 
                 _multi.Tick();
+
+                // Tick 后、进入 Poll 前再检查一次：如果 Dispose 已经设了 _stop，
+                // 跳过接下来这次 Poll（也为 wakeup 万一失效提供一道保险）。
+                if (_stop) break;
+
                 _multi.Poll(PollTimeoutMs);
             }
         }
