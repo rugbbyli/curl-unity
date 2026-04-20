@@ -60,6 +60,17 @@ namespace CurlUnity.Http
         {
             if (IsDisposed) throw new ObjectDisposedException(nameof(CurlHttpClient));
 
+            // 短路已取消的 token：直接以 Canceled 完成 Task，不分配 CurlRequest，
+            // 也不走 ct.Register 的"注册回调可能同步触发"路径——那条路径在 token
+            // 已取消时会在字典还没写入的窗口里触发回调，虽然最终会靠 OnComplete
+            // 兜底清理，但逻辑绕且依赖多机制串联。明确的前置检查更清晰。
+            if (ct.IsCancellationRequested)
+            {
+                var canceled = new TaskCompletionSource<IHttpResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+                canceled.TrySetCanceled(ct);
+                return canceled.Task;
+            }
+
             var tcs = new TaskCompletionSource<IHttpResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
 
             CurlRequest curlReq;

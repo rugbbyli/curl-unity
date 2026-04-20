@@ -43,7 +43,15 @@ namespace CurlUnity.Core
 
         /// <summary>
         /// 提交请求。自动配置 write/header callback 和 PRIVATE 关联。
-        /// 提交后 CurlRequest 的生命周期由 CurlMulti 管理，完成后自动 Dispose。
+        /// <para>
+        /// 提交后 CurlRequest 的活跃生命周期由 CurlMulti 管理。成功完成时
+        /// 状态会进入 <see cref="CurlRequestState.Completed"/> 并通过
+        /// <c>ReleaseBuffers</c> 释放辅助资源（GCHandle、slist、buffer），
+        /// 但 easy handle 的所有权已转移给 <see cref="CurlResponse.EasyHandle"/>，
+        /// 由调用方在消费完响应后 Dispose。<b>正常完成路径不会自动把
+        /// request 转入 Disposed 状态</b>——调用方仅在希望彻底清理中途未
+        /// 提交 / 被取消的 request 时需要调 <see cref="CurlRequest.Dispose"/>。
+        /// </para>
         /// <para>
         /// 只有处于 <see cref="CurlRequestState.Created"/> 的请求会真正被送入
         /// multi；已取消或已释放的请求会立即通过 OnComplete 以失败回调通知，

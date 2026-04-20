@@ -16,7 +16,28 @@ namespace CurlUnity.Core
 
         private bool IsDisposed => Volatile.Read(ref _disposedFlag) != 0;
 
-        public int PollTimeoutMs { get; set; } = 1000;
+        private int _pollTimeoutMs = 1000;
+
+        /// <summary>
+        /// 单次 <c>curl_multi_poll</c> 等待上限（毫秒），同时影响 <see cref="Dispose"/> 的
+        /// Join 超时（= PollTimeoutMs × 2 + 500ms）。
+        /// <para>
+        /// 取值必须在 [0, 1_000_000] 之间（1000 秒）。设置负数或超出范围会抛
+        /// <see cref="ArgumentOutOfRangeException"/>，避免后续 Join 溢出或
+        /// <c>Thread.Join</c> 因负值抛异常。
+        /// </para>
+        /// </summary>
+        public int PollTimeoutMs
+        {
+            get => _pollTimeoutMs;
+            set
+            {
+                if (value < 0 || value > 1_000_000)
+                    throw new ArgumentOutOfRangeException(nameof(value),
+                        $"PollTimeoutMs must be in [0, 1000000]; got {value}.");
+                _pollTimeoutMs = value;
+            }
+        }
 
         public CurlBackgroundWorker()
             : this(CurlNativeApi.Instance)
