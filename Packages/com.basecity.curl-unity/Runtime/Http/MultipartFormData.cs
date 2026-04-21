@@ -145,7 +145,10 @@ namespace CurlUnity.Http
                 throw new InvalidOperationException(
                     "form 含 Stream part,请用 BuildStream() 或直接通过 PostMultipartAsync 提交");
 
-            using var ms = new MemoryStream();
+            // 预算总长已知, 预分配 capacity 避免 MemoryStream 内部多次扩容/复制
+            long predicted = ContentLength;
+            int initialCapacity = predicted <= int.MaxValue ? (int)predicted : 0;
+            using var ms = new MemoryStream(initialCapacity);
             foreach (var part in _parts)
             {
                 ms.Write(_dashBoundary, 0, _dashBoundary.Length);
@@ -162,9 +165,16 @@ namespace CurlUnity.Http
         /// 时从源 Stream 拉取,整个 body 不会一次性进内存。配合 <see cref="IHttpRequest.BodyStream"/>
         /// 使用,设 <see cref="IHttpRequest.BodyLength"/> = <see cref="ContentLength"/>。
         /// </summary>
+        /// <remarks>
+        /// 调用此方法时对当前 parts 做 snapshot,后续再调 <c>AddText</c>/<c>AddFile</c>
+        /// 不会影响已返回的 Stream 内容。
+        /// </remarks>
         public Stream BuildStream()
         {
-            return new MultipartStream(_parts, _dashBoundary, _closeBoundary);
+            // Snapshot parts 以避免 user 在读 stream 过程中再 AddX 改变 form,
+            // 造成 ContentLength 和实际产出长度不一致
+            var snapshot = _parts.ToArray();
+            return new MultipartStream(snapshot, _dashBoundary, _closeBoundary);
         }
 
         private static string ValidateContentType(string contentType)
@@ -230,19 +240,20 @@ namespace CurlUnity.Http
 
         /// <summary>
         /// 按需串行化各 part 的只读 Stream。不持有 user Stream 所有权。
+        /// 构造时对 parts 做 snapshot,整个生命周期内 parts 视图不变。
         /// </summary>
         private sealed class MultipartStream : Stream
         {
-            private readonly List<Part> _parts;
+            private readonly Part[] _parts;
             private readonly byte[] _dashBoundary;
             private readonly byte[] _closeBoundary;
 
-            private int _partIndex;    // 当前 part 下标;== _parts.Count 表示进入 closing 阶段
+            private int _partIndex;    // 当前 part 下标;== _parts.Length 表示进入 closing 阶段
             private int _phase;        // 0=dashBoundary, 1=header, 2=body, 3=trailing CRLF
             private long _phaseOffset; // 当前 phase 已读字节数
             private bool _closed;
 
-            public MultipartStream(List<Part> parts, byte[] dashBoundary, byte[] closeBoundary)
+            public MultipartStream(Part[] parts, byte[] dashBoundary, byte[] closeBoundary)
             {
                 _parts = parts;
                 _dashBoundary = dashBoundary;
@@ -267,15 +278,18 @@ namespace CurlUnity.Http
             {
                 if (_closed) throw new ObjectDisposedException(nameof(MultipartStream));
                 if (buffer == null) throw new ArgumentNullException(nameof(buffer));
-                if (offset < 0 || count < 0 || offset + count > buffer.Length)
-                    throw new ArgumentOutOfRangeException();
+                if (offset < 0) throw new ArgumentOutOfRangeException(nameof(offset));
+                if (count < 0) throw new ArgumentOutOfRangeException(nameof(count));
+                if (buffer.Length - offset < count)
+                    throw new ArgumentException(
+                        "offset + count exceeds buffer length", nameof(count));
                 if (count == 0) return 0;
 
                 // state machine: 每次 Read 填当前 phase 的剩余字节,拉够一块就返回;
                 // 拉空则推进到下一个 phase。调用方多次 Read 串起来就是完整 body。
                 while (true)
                 {
-                    if (_partIndex < _parts.Count)
+                    if (_partIndex < _parts.Length)
                     {
                         var part = _parts[_partIndex];
                         switch (_phase)

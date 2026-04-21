@@ -182,6 +182,28 @@ namespace CurlUnity.IntegrationTests.Tests
         }
 
         [Fact]
+        public void BuildStream_SnapshotsParts_SubsequentAddIgnored()
+        {
+            var form = new MultipartFormData();
+            form.AddText("a", "1");
+            var expectedLen = form.ContentLength;
+
+            // 开始读 stream 后再往 form 加 part, 返回的 stream 不应看到新增内容
+            using var stream = form.BuildStream();
+            form.AddText("b", "2");
+
+            using var ms = new MemoryStream();
+            var buf = new byte[256];
+            int n;
+            while ((n = stream.Read(buf, 0, buf.Length)) > 0) ms.Write(buf, 0, n);
+
+            Assert.Equal(expectedLen, ms.Length);
+            var body = Encoding.UTF8.GetString(ms.ToArray());
+            Assert.Contains("name=\"a\"", body);
+            Assert.DoesNotContain("name=\"b\"", body);
+        }
+
+        [Fact]
         public async Task PostMultipart_StreamEndsEarly_UploadFails()
         {
             // 声明 length=100 但 stream 只能给 50 → MultipartStream 里会抛 IOException
