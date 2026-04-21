@@ -37,46 +37,41 @@ namespace CurlUnity.Http
         private readonly byte[] _dashBoundary;     // "--<boundary>\r\n"
         private readonly byte[] _closeBoundary;    // "--<boundary>--\r\n"
 
+        // HasStreamParts / ContentLength 做增量维护,避免每次访问都遍历 _parts。
+        // 所有 mutation 只发生在 AddText / AddFile,这两处同步更新两个字段。
+        private bool _hasStreamParts;
+        private long _contentLength;
+
         public MultipartFormData()
         {
             _boundary = "----CurlUnityBoundary" + Guid.NewGuid().ToString("N");
             _dashBoundary = Encoding.ASCII.GetBytes("--" + _boundary + "\r\n");
             _closeBoundary = Encoding.ASCII.GetBytes("--" + _boundary + "--\r\n");
             ContentType = "multipart/form-data; boundary=" + _boundary;
+            _contentLength = _closeBoundary.Length;  // 空 form 的 body 只有 closing boundary
         }
 
         /// <summary>Content-Type header 值,含 boundary。构造时即可读,不依赖 <see cref="Build"/>/<see cref="BuildStream"/>。</summary>
         public string ContentType { get; }
 
         /// <summary>当前 form 里是否存在 Stream part;有则必须走 <see cref="BuildStream"/>。</summary>
-        public bool HasStreamParts
-        {
-            get
-            {
-                foreach (var p in _parts) if (p.StreamBody != null) return true;
-                return false;
-            }
-        }
+        public bool HasStreamParts => _hasStreamParts;
 
         /// <summary>
         /// 完整 body 的字节长度(boundary + headers + bodies + closing)。不会读取任何 Stream,
         /// 只累加预算值,可在不消耗数据的前提下作为 <c>Content-Length</c> 提交。
         /// </summary>
-        public long ContentLength
+        public long ContentLength => _contentLength;
+
+        /// <summary>
+        /// Part 添加后,增量更新 ContentLength 与 HasStreamParts。调用前确保
+        /// <c>part.HeaderBytes</c> 已填充、Payload 长度已确定。
+        /// </summary>
+        private void AppendPart(Part part)
         {
-            get
-            {
-                long total = 0;
-                foreach (var p in _parts)
-                {
-                    total += _dashBoundary.Length;
-                    total += p.HeaderBytes.Length;
-                    total += p.PayloadLength;
-                    total += CRLF.Length;
-                }
-                total += _closeBoundary.Length;
-                return total;
-            }
+            _parts.Add(part);
+            _contentLength += _dashBoundary.Length + part.HeaderBytes.Length + part.PayloadLength + CRLF.Length;
+            if (part.StreamBody != null) _hasStreamParts = true;
         }
 
         /// <summary>添加文本字段。value 用 UTF-8 编码。</summary>
@@ -89,7 +84,7 @@ namespace CurlUnity.Http
                 Body = Encoding.UTF8.GetBytes(value ?? string.Empty),
             };
             part.HeaderBytes = BuildPartHeader(part);
-            _parts.Add(part);
+            AppendPart(part);
         }
 
         /// <summary>添加内存中的文件字段。</summary>
@@ -108,7 +103,7 @@ namespace CurlUnity.Http
                 Body = content,
             };
             part.HeaderBytes = BuildPartHeader(part);
-            _parts.Add(part);
+            AppendPart(part);
         }
 
         /// <summary>
@@ -135,7 +130,7 @@ namespace CurlUnity.Http
                 StreamLength = length,
             };
             part.HeaderBytes = BuildPartHeader(part);
-            _parts.Add(part);
+            AppendPart(part);
         }
 
         /// <summary>构造完整 multipart body。所有 part 必须是内存数据;含 Stream part 时请改用 <see cref="BuildStream"/>。</summary>
