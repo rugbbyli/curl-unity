@@ -13,7 +13,7 @@ set -eo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PLUGINS_DIR="$PROJECT_ROOT/Packages/com.basecity.curl-unity/Runtime/Plugins"
-REPO="rugbbyli/curl-unity"
+REPO="4AVolcano/curl-unity"
 WORKFLOW="build.yml"
 TEMP_DIR=""
 
