@@ -62,11 +62,15 @@ namespace CurlUnity.Http
             if (string.IsNullOrEmpty(name)) throw new ArgumentException("name required", nameof(name));
             if (string.IsNullOrEmpty(fileName)) throw new ArgumentException("fileName required", nameof(fileName));
             if (content == null) throw new ArgumentNullException(nameof(content));
+            var ct = string.IsNullOrEmpty(contentType) ? "application/octet-stream" : contentType;
+            // contentType 直接写进 header,必须拒绝含 CR/LF 的值避免 header 注入
+            if (ct.IndexOf('\r') >= 0 || ct.IndexOf('\n') >= 0)
+                throw new ArgumentException("contentType must not contain CR or LF", nameof(contentType));
             _parts.Add(new Part
             {
                 Name = name,
                 FileName = fileName,
-                ContentType = string.IsNullOrEmpty(contentType) ? "application/octet-stream" : contentType,
+                ContentType = ct,
                 Body = content,
             });
         }
@@ -108,6 +112,9 @@ namespace CurlUnity.Http
                 sb.Append("Content-Disposition: form-data; name=\"")
                   .Append(EscapeFormName(part.Name))
                   .Append("\"\r\n");
+                // 显式 UTF-8 charset: AddText 以 UTF-8 编码 value,有些后端默认按
+                // US-ASCII 解析会乱码;显式声明避免歧义。
+                sb.Append("Content-Type: text/plain; charset=utf-8\r\n");
             }
             sb.Append("\r\n");
             return Encoding.UTF8.GetBytes(sb.ToString());
@@ -115,12 +122,16 @@ namespace CurlUnity.Http
 
         /// <summary>
         /// RFC 7578 §4.2: 字段/文件名里的双引号、CR、LF 需转义成百分号编码。
-        /// 大多数字段名是 ASCII,这里只做最小必要转义。
+        /// 反斜杠额外转义,避免末尾 '\' 把后随的 '"' 转成 escape 序列导致
+        /// quoted-string 未闭合(可被宽容 parser 利用做 header 注入)。
         /// </summary>
         private static string EscapeFormName(string s)
         {
             if (string.IsNullOrEmpty(s)) return s;
-            return s.Replace("\"", "%22").Replace("\r", "%0D").Replace("\n", "%0A");
+            return s.Replace("\\", "%5C")
+                    .Replace("\"", "%22")
+                    .Replace("\r", "%0D")
+                    .Replace("\n", "%0A");
         }
 
         private sealed class Part
