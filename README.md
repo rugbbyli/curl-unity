@@ -21,7 +21,7 @@ libcurl 的 Unity3D 原生封装，通过 P/Invoke 提供 **HTTP/2 + HTTP/3 (QUI
 ```json
 {
   "dependencies": {
-    "com.basecity.curl-unity": "https://github.com/rugbbyli/curl-unity.git#upm"
+    "com.basecity.curl-unity": "https://github.com/4AVolcano/curl-unity.git#upm"
   }
 }
 ```
