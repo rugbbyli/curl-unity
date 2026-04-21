@@ -174,7 +174,7 @@ namespace CurlUnity.IntegrationTests.TestServer
                 var plain = System.Text.Encoding.UTF8.GetBytes(text);
 
                 var acceptEnc = (string)ctx.Request.Headers["Accept-Encoding"];
-                if (acceptEnc != null && acceptEnc.Contains("gzip"))
+                if (acceptEnc != null && acceptEnc.Contains("gzip", StringComparison.OrdinalIgnoreCase))
                 {
                     // 先 gzip 到内存,再一次性写,确保 Kestrel 根据实际压缩长度写 Content-Length
                     using var gzBuf = new MemoryStream();

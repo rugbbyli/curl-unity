@@ -1,5 +1,7 @@
 using System;
+using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using CurlUnity.Http;
 using CurlUnity.IntegrationTests.Fixtures;
@@ -64,9 +66,11 @@ namespace CurlUnity.IntegrationTests.Tests
             using var resp = await _client.SendAsync(req);
 
             Assert.Equal(200, resp.StatusCode);
-            var body = Encoding.UTF8.GetString(resp.Body);
-            Assert.Contains("\"Accept-Encoding\"", body);
-            Assert.Contains("gzip", body);
+            using var doc = JsonDocument.Parse(Encoding.UTF8.GetString(resp.Body));
+            Assert.True(doc.RootElement.TryGetProperty("Accept-Encoding", out var values),
+                "expected Accept-Encoding header in request");
+            var joined = string.Join(",", values.EnumerateArray().Select(v => v.GetString()));
+            Assert.Contains("gzip", joined, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
@@ -80,9 +84,10 @@ namespace CurlUnity.IntegrationTests.Tests
             using var resp = await _client.SendAsync(req);
 
             Assert.Equal(200, resp.StatusCode);
-            var body = Encoding.UTF8.GetString(resp.Body);
+            using var doc = JsonDocument.Parse(Encoding.UTF8.GetString(resp.Body));
             // 关闭后, request 不应带 Accept-Encoding header
-            Assert.DoesNotContain("\"Accept-Encoding\"", body);
+            Assert.False(doc.RootElement.TryGetProperty("Accept-Encoding", out _),
+                "Accept-Encoding should not be sent when AutoDecompressResponse=false");
         }
     }
 }
