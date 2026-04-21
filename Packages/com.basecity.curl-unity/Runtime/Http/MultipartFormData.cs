@@ -22,10 +22,16 @@ namespace CurlUnity.Http
     /// 大文件场景用 <see cref="AddFile(string, string, System.IO.Stream, long, string)"/>
     /// 提交 <see cref="System.IO.Stream"/>,配合 <see cref="BuildStream"/> 和 <see cref="ContentLength"/>
     /// 走流式上传,避免全量读入内存。<see cref="HasStreamParts"/> 为 <c>true</c> 时
-    /// <see cref="PostMultipartAsync"/> 会自动路由到 <see cref="IHttpRequest.BodyStream"/> 通路。
+    /// <see cref="HttpClientExtensions.PostMultipartAsync"/> 会自动路由到 <see cref="IHttpRequest.BodyStream"/> 通路。
     /// </para>
     /// <para>
     /// <see cref="ContentType"/> 在实例构造时即可读,包含随机生成的 boundary。
+    /// </para>
+    /// <para>
+    /// <b>冻结语义</b>:首次调用 <see cref="Build"/> 或 <see cref="BuildStream"/> 后,
+    /// form 进入 frozen 状态,再调 <see cref="AddText"/>/<see cref="AddFile(string, string, byte[], string)"/>/
+    /// <see cref="AddFile(string, string, System.IO.Stream, long, string)"/> 抛 <see cref="InvalidOperationException"/>。
+    /// Build/BuildStream 本身可重复调用(产出一致)。
     /// </para>
     /// </remarks>
     public sealed class MultipartFormData
@@ -41,6 +47,10 @@ namespace CurlUnity.Http
         // 所有 mutation 只发生在 AddText / AddFile,这两处同步更新两个字段。
         private bool _hasStreamParts;
         private long _contentLength;
+
+        // 首次 Build/BuildStream 后置 true,后续 Add* 拒绝;避免 form 在序列化进行
+        // 中被改动导致 ContentLength 与实际产出不一致。
+        private bool _frozen;
 
         public MultipartFormData()
         {
@@ -74,9 +84,17 @@ namespace CurlUnity.Http
             if (part.StreamBody != null) _hasStreamParts = true;
         }
 
+        private void EnsureMutable()
+        {
+            if (_frozen)
+                throw new InvalidOperationException(
+                    "MultipartFormData 已经 Build/BuildStream, 不允许再修改; 请新建实例");
+        }
+
         /// <summary>添加文本字段。value 用 UTF-8 编码。</summary>
         public void AddText(string name, string value)
         {
+            EnsureMutable();
             if (string.IsNullOrEmpty(name)) throw new ArgumentException("name required", nameof(name));
             var part = new Part
             {
@@ -91,6 +109,7 @@ namespace CurlUnity.Http
         public void AddFile(string name, string fileName, byte[] content,
             string contentType = "application/octet-stream")
         {
+            EnsureMutable();
             if (string.IsNullOrEmpty(name)) throw new ArgumentException("name required", nameof(name));
             if (string.IsNullOrEmpty(fileName)) throw new ArgumentException("fileName required", nameof(fileName));
             if (content == null) throw new ArgumentNullException(nameof(content));
@@ -115,6 +134,7 @@ namespace CurlUnity.Http
         public void AddFile(string name, string fileName, Stream content, long length,
             string contentType = "application/octet-stream")
         {
+            EnsureMutable();
             if (string.IsNullOrEmpty(name)) throw new ArgumentException("name required", nameof(name));
             if (string.IsNullOrEmpty(fileName)) throw new ArgumentException("fileName required", nameof(fileName));
             if (content == null) throw new ArgumentNullException(nameof(content));
@@ -152,6 +172,7 @@ namespace CurlUnity.Http
                 ms.Write(CRLF, 0, CRLF.Length);
             }
             ms.Write(_closeBoundary, 0, _closeBoundary.Length);
+            _frozen = true;
             return ms.ToArray();
         }
 
@@ -161,15 +182,14 @@ namespace CurlUnity.Http
         /// 使用,设 <see cref="IHttpRequest.BodyLength"/> = <see cref="ContentLength"/>。
         /// </summary>
         /// <remarks>
-        /// 调用此方法时对当前 parts 做 snapshot,后续再调 <c>AddText</c>/<c>AddFile</c>
-        /// 不会影响已返回的 Stream 内容。
+        /// 调用后 form 进入 frozen 状态,后续 <c>AddText</c>/<c>AddFile</c> 抛
+        /// <see cref="InvalidOperationException"/>;同一 form 可重复调用 BuildStream
+        /// 产出独立的 stream 对象。
         /// </remarks>
         public Stream BuildStream()
         {
-            // Snapshot parts 以避免 user 在读 stream 过程中再 AddX 改变 form,
-            // 造成 ContentLength 和实际产出长度不一致
-            var snapshot = _parts.ToArray();
-            return new MultipartStream(snapshot, _dashBoundary, _closeBoundary);
+            _frozen = true;
+            return new MultipartStream(_parts, _dashBoundary, _closeBoundary);
         }
 
         private static string ValidateContentType(string contentType)
@@ -235,20 +255,20 @@ namespace CurlUnity.Http
 
         /// <summary>
         /// 按需串行化各 part 的只读 Stream。不持有 user Stream 所有权。
-        /// 构造时对 parts 做 snapshot,整个生命周期内 parts 视图不变。
+        /// 持有 parts 引用; form 在 BuildStream 后进入 frozen 状态, parts 不会再变。
         /// </summary>
         private sealed class MultipartStream : Stream
         {
-            private readonly Part[] _parts;
+            private readonly List<Part> _parts;
             private readonly byte[] _dashBoundary;
             private readonly byte[] _closeBoundary;
 
-            private int _partIndex;    // 当前 part 下标;== _parts.Length 表示进入 closing 阶段
+            private int _partIndex;    // 当前 part 下标;== _parts.Count 表示进入 closing 阶段
             private int _phase;        // 0=dashBoundary, 1=header, 2=body, 3=trailing CRLF
             private long _phaseOffset; // 当前 phase 已读字节数
             private bool _closed;
 
-            public MultipartStream(Part[] parts, byte[] dashBoundary, byte[] closeBoundary)
+            public MultipartStream(List<Part> parts, byte[] dashBoundary, byte[] closeBoundary)
             {
                 _parts = parts;
                 _dashBoundary = dashBoundary;
@@ -284,7 +304,7 @@ namespace CurlUnity.Http
                 // 拉空则推进到下一个 phase。调用方多次 Read 串起来就是完整 body。
                 while (true)
                 {
-                    if (_partIndex < _parts.Length)
+                    if (_partIndex < _parts.Count)
                     {
                         var part = _parts[_partIndex];
                         switch (_phase)

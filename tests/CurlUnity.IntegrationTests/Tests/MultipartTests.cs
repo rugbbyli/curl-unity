@@ -182,25 +182,39 @@ namespace CurlUnity.IntegrationTests.Tests
         }
 
         [Fact]
-        public void BuildStream_SnapshotsParts_SubsequentAddIgnored()
+        public void Build_AfterCalled_Add_Throws()
         {
             var form = new MultipartFormData();
             form.AddText("a", "1");
-            var expectedLen = form.ContentLength;
+            _ = form.Build();
 
-            // 开始读 stream 后再往 form 加 part, 返回的 stream 不应看到新增内容
-            using var stream = form.BuildStream();
-            form.AddText("b", "2");
+            Assert.Throws<InvalidOperationException>(() => form.AddText("b", "2"));
+            Assert.Throws<InvalidOperationException>(() => form.AddFile("f", "x.bin", new byte[] { 1 }));
+        }
 
-            using var ms = new MemoryStream();
-            var buf = new byte[256];
-            int n;
-            while ((n = stream.Read(buf, 0, buf.Length)) > 0) ms.Write(buf, 0, n);
+        [Fact]
+        public void BuildStream_AfterCalled_Add_Throws()
+        {
+            var form = new MultipartFormData();
+            form.AddText("a", "1");
+            using (form.BuildStream()) { }
 
-            Assert.Equal(expectedLen, ms.Length);
-            var body = Encoding.UTF8.GetString(ms.ToArray());
-            Assert.Contains("name=\"a\"", body);
-            Assert.DoesNotContain("name=\"b\"", body);
+            Assert.Throws<InvalidOperationException>(() => form.AddText("b", "2"));
+            using var src = new MemoryStream(new byte[] { 1 });
+            Assert.Throws<InvalidOperationException>(() => form.AddFile("f", "x.bin", src, 1));
+        }
+
+        [Fact]
+        public void Build_CalledTwice_ProducesIdenticalOutput()
+        {
+            // freeze 不阻止重复 Build, 两次产出必须一致(boundary 构造时固定)
+            var form = new MultipartFormData();
+            form.AddText("a", "1");
+            form.AddFile("f", "a.bin", new byte[] { 1, 2, 3 });
+
+            var first = form.Build();
+            var second = form.Build();
+            Assert.Equal(first, second);
         }
 
         [Fact]
