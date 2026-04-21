@@ -356,7 +356,8 @@ jobs:
           git push -f origin upm
 
           # 为 upm 分支的 commit 打 tag(命名加 upm/ 前缀,避免与 master 的 v* tag 冲突)
+          # 用 force 与分支 force push 策略对齐:同一个 v* tag 重发时 tag 也跟随新 commit
           git tag -a "$UPM_TAG" -m "UPM release $TAG"
-          git push origin "$UPM_TAG"
+          git push -f origin "$UPM_TAG"
 
           echo "Published $UPM_TAG to upm branch"
