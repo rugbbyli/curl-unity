@@ -35,6 +35,12 @@ libcurl 的 Unity3D 原生封装，通过 P/Invoke 提供 **HTTP/2 + HTTP/3 (QUI
 
 `upm` 分支由 CI 在打 `v*` tag 时自动发布，扁平到根目录，包含 `Runtime/`、`Editor/`、`package.json` 和全平台预编译二进制，**不含 `deps/` 源码**，体积小。
 
+## 文档
+
+- [快速开始](docs/articles/getting-started.md) — 第一个 GET/POST 请求、常用场景、错误处理
+- [进阶使用](docs/articles/advanced.md) — 流式上传/下载、Multipart、代理、Cookie、诊断统计
+- **完整 API 参考** — 本地生成:`./scripts/build-docs.sh --serve` → http://localhost:8080(DocFX 静态站,未来会部署到 GitHub Pages)
+
 ## 支持平台
 
 | 平台 | 架构 | 产物 | 最低版本 |
@@ -83,7 +89,7 @@ curl-unity/
 ├── tests/                      # 测试
 │   ├── verify_build.c          #   C smoke test (CI)
 │   └── CurlUnity.IntegrationTests/  # xUnit 集成测试
-└── docs/                       # 文档
+└── docs/                       # 文档 (DocFX 站点源 + 构建/真机测试指南)
 ```
 
 ## 构建

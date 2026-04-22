@@ -4,6 +4,11 @@ output/
 tests/**/bin/
 tests/**/obj/
 
+# DocFX 文档站构建产物(metadata 生成的 yml 和最终 HTML 站)
+docs/_site/
+docs/api/*.yml
+docs/api/.manifest
+
 # Unity demo 项目 (保留源码，忽略生成文件)
 demo/**/Library/
 demo/**/Temp/

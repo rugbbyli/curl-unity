@@ -1,0 +1,13 @@
+# DocFX metadata filter: 仅保留 public API,排除 internal/private 和编译器生成类型。
+apiRules:
+- include:
+    uidRegex: ^CurlUnity\.(Http|Diagnostics)\.
+    type: Namespace
+- exclude:
+    hasAttribute:
+      uid: System.Runtime.CompilerServices.CompilerGeneratedAttribute
+      type: Type
+- exclude:
+    hasAttribute:
+      uid: System.Runtime.CompilerServices.CompilerGeneratedAttribute
+      type: Member

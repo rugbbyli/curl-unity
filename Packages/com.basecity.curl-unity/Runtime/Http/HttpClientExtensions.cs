@@ -6,8 +6,13 @@ using System.Threading.Tasks;
 
 namespace CurlUnity.Http
 {
+    /// <summary>
+    /// <see cref="IHttpClient"/> 的便利扩展方法:常见方法/内容类型的 one-liner 封装。
+    /// 需要更多控制时直接构造 <see cref="HttpRequest"/> 并调 <see cref="IHttpClient.SendAsync"/>。
+    /// </summary>
     public static class HttpClientExtensions
     {
+        /// <summary>发送一个 GET 请求。</summary>
         public static Task<IHttpResponse> GetAsync(this IHttpClient client, string url,
             CancellationToken ct = default)
         {
@@ -15,6 +20,7 @@ namespace CurlUnity.Http
             return client.SendAsync(req, ct);
         }
 
+        /// <summary>发送一个 POST 请求,body 为 raw bytes,附带指定 <paramref name="contentType"/>。</summary>
         public static Task<IHttpResponse> PostAsync(this IHttpClient client, string url,
             byte[] body, string contentType = "application/octet-stream",
             CancellationToken ct = default)
@@ -29,12 +35,16 @@ namespace CurlUnity.Http
             return client.SendAsync(req, ct);
         }
 
+        /// <summary>
+        /// 以 <c>application/json</c> 发送 POST 请求。<paramref name="json"/> 会按 UTF-8 编码。
+        /// </summary>
         public static Task<IHttpResponse> PostJsonAsync(this IHttpClient client, string url,
             string json, CancellationToken ct = default)
         {
             return client.PostAsync(url, Encoding.UTF8.GetBytes(json), "application/json", ct);
         }
 
+        /// <summary>发送一个 PUT 请求,body 为 raw bytes,附带指定 <paramref name="contentType"/>。</summary>
         public static Task<IHttpResponse> PutAsync(this IHttpClient client, string url,
             byte[] body, string contentType = "application/octet-stream",
             CancellationToken ct = default)
@@ -49,6 +59,7 @@ namespace CurlUnity.Http
             return client.SendAsync(req, ct);
         }
 
+        /// <summary>发送一个 DELETE 请求,无 body。</summary>
         public static Task<IHttpResponse> DeleteAsync(this IHttpClient client, string url,
             CancellationToken ct = default)
         {
