@@ -38,7 +38,11 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Install docfx
-        run: dotnet tool install -g docfx
+        # 固定版本, 避免 upstream 新版 break 文档构建; 升级走独立 PR
+        run: dotnet tool install -g docfx --version 2.78.3
+
+      - name: Add .NET tools to PATH
+        run: echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
 
       - name: Build docs
         working-directory: docs
@@ -53,6 +57,8 @@ jobs:
 
   deploy:
     needs: build
+    # workflow_dispatch 允许从任意分支手动触发, 但部署生产站只能来自 master
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
