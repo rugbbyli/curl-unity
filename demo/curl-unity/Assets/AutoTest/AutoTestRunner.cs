@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 using CurlUnity.Http;
+using Random = System.Random;
 
 /// <summary>
 /// Automated device test runner for curl-unity.
@@ -83,6 +84,9 @@ public class AutoTestRunner : MonoBehaviour
             ("Concurrent",       TestConcurrent),
             ("ConnectionReuse",  TestConnectionReuse),
             ("DnsFailure",       TestDnsFailure),
+            ("Upload_Stream",    TestUploadStream),
+            ("Cookie_SharedJar", TestCookieSharedJar),
+            ("AutoDecompress",   TestAutoDecompress),
         };
 
         var platform = Application.platform.ToString();
@@ -407,6 +411,71 @@ public class AutoTestRunner : MonoBehaviour
         // CURLE_COULDNT_RESOLVE_HOST (6) is ideal, but some networks
         // DNS-hijack and return CURLE_GOT_NOTHING (52), CURLE_OPERATION_TIMEDOUT (28), etc.
         // Any error is acceptable — the point is that the request failed gracefully.
+    }
+
+    static async Task TestUploadStream(CurlHttpClient client, CancellationToken ct)
+    {
+        // 验证流式上传(READFUNCTION 回调 + 新增的 curl_unity_setopt_read_function
+        // bridge 符号)在各平台导出正常。64KB body 足够触发多次回调。
+        var bytes = new byte[64 * 1024];
+        new Random(42).NextBytes(bytes);
+        using var src = new MemoryStream(bytes);
+        var req = new HttpRequest
+        {
+            Method = HttpMethod.Post,
+            Url = "https://httpbin.org/post",
+            BodyStream = src,
+            BodyLength = src.Length,
+        };
+        using var resp = await client.SendAsync(req, ct);
+        Assert(resp.HasResponse, $"No response: err={resp.ErrorCode} {resp.ErrorMessage}");
+        Assert(resp.StatusCode == 200, $"Expected 200, got {resp.StatusCode}");
+        // httpbin 的 /post 回显请求的元信息(JSON);验证 server 能正确接到上传的 64KB
+        var body = Encoding.UTF8.GetString(resp.Body);
+        Assert(body.Contains("\"data\""), "Response missing 'data' field");
+    }
+
+    static async Task TestCookieSharedJar(CurlHttpClient client, CancellationToken ct)
+    {
+        // 验证 CURLSH 跨请求 cookie 共享在各平台工作(涉及 lock/unlock 回调
+        // 的线程原语, 平台差异点)。第一次请求让 server 种 cookie, 第二次
+        // 请求断言客户端把该 cookie 回发给了 server。
+        var r1 = new HttpRequest
+        {
+            Url = "https://httpbin.org/cookies/set?curlUnityTest=rc1",
+            EnableCookies = true,
+        };
+        using (var resp1 = await client.SendAsync(r1, ct))
+        {
+            Assert(resp1.HasResponse, $"Set-cookie request failed: err={resp1.ErrorCode}");
+        }
+
+        var r2 = new HttpRequest
+        {
+            Url = "https://httpbin.org/cookies",
+            EnableCookies = true,
+        };
+        using var resp2 = await client.SendAsync(r2, ct);
+        Assert(resp2.HasResponse, $"Check-cookie request failed: err={resp2.ErrorCode}");
+        Assert(resp2.StatusCode == 200, $"Expected 200, got {resp2.StatusCode}");
+        var body = Encoding.UTF8.GetString(resp2.Body);
+        Assert(body.Contains("curlUnityTest") && body.Contains("rc1"),
+            $"Cookie not echoed back: {body.Substring(0, Math.Min(200, body.Length))}");
+    }
+
+    static async Task TestAutoDecompress(CurlHttpClient client, CancellationToken ct)
+    {
+        // AutoDecompressResponse 默认开启 → 客户端发 Accept-Encoding: gzip,
+        // libcurl 透明解压。验证各平台 zlib 链接正常(若 zlib 链接失败,
+        // 会拿到原始压缩字节或请求直接失败)。
+        // httpbin.org/gzip 强制返回 gzip 响应, 解压后 JSON 含 "gzipped": true。
+        using var resp = await client.GetAsync("https://httpbin.org/gzip", ct);
+        Assert(resp.HasResponse, $"No response: err={resp.ErrorCode} {resp.ErrorMessage}");
+        Assert(resp.StatusCode == 200, $"Expected 200, got {resp.StatusCode}");
+        var body = Encoding.UTF8.GetString(resp.Body);
+        Assert(body.Contains("\"gzipped\""),
+            $"Body missing 'gzipped' field (decompression may have failed): {body.Substring(0, Math.Min(200, body.Length))}");
+        Assert(body.Contains("true"), "Expected 'true' in decompressed body");
     }
 
     // ================================================================

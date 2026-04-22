@@ -80,7 +80,7 @@ SSH 连接默认为 `developer@192.168.0.170`，可通过 `WIN_SSH` 环境变量
   --build         执行 Unity 构建（不传则使用已有构建产物）
   --skip-sync     跳过插件同步步骤
   --local         使用本地编译产物而非 CI 产物
-  --timeout <s>   等待测试完成的超时秒数（默认 120）
+  --timeout <s>   等待测试完成的超时秒数（默认 240）
   --unity <ver>   指定 Unity 版本（默认 2022.3.62f3）
 ```
 

@@ -14,7 +14,7 @@
 # Options:
 #   --build         Run Unity build before deploying (default: use existing build)
 #   --skip-sync     Skip sync-plugins.sh step
-#   --timeout <s>   Seconds to wait for test completion (default: 120)
+#   --timeout <s>   Seconds to wait for test completion (default: 240)
 #   --unity <ver>   Unity version to use (default: 2022.3.62f3)
 #
 set -eo pipefail
@@ -29,7 +29,7 @@ PLATFORM=""
 DO_BUILD=false
 SKIP_SYNC=false
 USE_LOCAL_SYNC=false
-TIMEOUT=120
+TIMEOUT=240
 UNITY_VERSION="2022.3.62f3"
 UNITY_APP="/Applications/Unity/Hub/Editor/$UNITY_VERSION/Unity.app/Contents/MacOS/Unity"
 
@@ -81,7 +81,7 @@ Options:
   --build         Run Unity build before deploying (default: use existing build)
   --skip-sync     Skip sync-plugins.sh step
   --local         Use local sync mode (sync Plugins from ../output instead of CI)
-  --timeout <s>   Seconds to wait for test completion (default: 120)
+  --timeout <s>   Seconds to wait for test completion (default: 240)
   --unity <ver>   Unity version to use (default: 2022.3.62f3)
 
 Environment:
