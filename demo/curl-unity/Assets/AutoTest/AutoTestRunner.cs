@@ -83,6 +83,9 @@ public class AutoTestRunner : MonoBehaviour
             ("Concurrent",       TestConcurrent),
             ("ConnectionReuse",  TestConnectionReuse),
             ("DnsFailure",       TestDnsFailure),
+            ("Upload_Stream",    TestUploadStream),
+            ("Cookie_SharedJar", TestCookieSharedJar),
+            ("AutoDecompress",   TestAutoDecompress),
         };
 
         var platform = Application.platform.ToString();
@@ -407,6 +410,78 @@ public class AutoTestRunner : MonoBehaviour
         // CURLE_COULDNT_RESOLVE_HOST (6) is ideal, but some networks
         // DNS-hijack and return CURLE_GOT_NOTHING (52), CURLE_OPERATION_TIMEDOUT (28), etc.
         // Any error is acceptable — the point is that the request failed gracefully.
+    }
+
+    static async Task TestUploadStream(CurlHttpClient client, CancellationToken ct)
+    {
+        // 验证流式上传(READFUNCTION 回调 + 新增的 curl_unity_setopt_read_function
+        // bridge 符号)在各平台导出正常。
+        // 用确定性文本 payload(64KB ASCII 'A'),确保 server 能 echo 回原文,
+        // 并断言长度 + 含特征字符串。"data" 字段空也存在, 不能只 check 它。
+        const int size = 64 * 1024;
+        var payload = new string('A', size);
+        var bytes = Encoding.ASCII.GetBytes(payload);
+        using var src = new MemoryStream(bytes);
+        var req = new HttpRequest
+        {
+            Method = HttpMethod.Post,
+            Url = "https://httpbin.org/post",
+            BodyStream = src,
+            BodyLength = src.Length,
+        };
+        using var resp = await client.SendAsync(req, ct);
+        Assert(resp.HasResponse, $"No response: err={resp.ErrorCode} {resp.ErrorMessage}");
+        Assert(resp.StatusCode == 200, $"Expected 200, got {resp.StatusCode}");
+        var body = Encoding.UTF8.GetString(resp.Body);
+        // httpbin /post 把原 body echo 到 JSON 的 "data" 字段(若是 ASCII 文本则原样返回)
+        // 验证含原 payload 长度的 'A' 序列,证明 64KB 全部送达
+        Assert(body.Contains(new string('A', 256)),
+            $"Response 'data' missing expected payload (upload may be truncated). First 200: {body.Substring(0, Math.Min(200, body.Length))}");
+    }
+
+    static async Task TestCookieSharedJar(CurlHttpClient client, CancellationToken ct)
+    {
+        // 验证 CURLSH 跨请求 cookie 共享在各平台工作(涉及 lock/unlock 回调
+        // 的线程原语, 平台差异点)。第一次请求让 server 种 cookie, 第二次
+        // 请求断言客户端把该 cookie 回发给了 server。
+        var r1 = new HttpRequest
+        {
+            Url = "https://httpbin.org/cookies/set?curlUnityTest=rc1",
+            EnableCookies = true,
+        };
+        using (var resp1 = await client.SendAsync(r1, ct))
+        {
+            Assert(resp1.HasResponse, $"Set-cookie request failed: err={resp1.ErrorCode}");
+        }
+
+        var r2 = new HttpRequest
+        {
+            Url = "https://httpbin.org/cookies",
+            EnableCookies = true,
+        };
+        using var resp2 = await client.SendAsync(r2, ct);
+        Assert(resp2.HasResponse, $"Check-cookie request failed: err={resp2.ErrorCode}");
+        Assert(resp2.StatusCode == 200, $"Expected 200, got {resp2.StatusCode}");
+        var body = Encoding.UTF8.GetString(resp2.Body);
+        // 用 JSON 字段精确匹配, 避免 "curlUnityTest" 或 "rc1" 出现在其它 key/value
+        // 里造成假阳性 (httpbin 把 cookies 序列化成 {"name": "value"})
+        Assert(body.Contains("\"curlUnityTest\": \"rc1\""),
+            $"Cookie not echoed back as expected: {body.Substring(0, Math.Min(200, body.Length))}");
+    }
+
+    static async Task TestAutoDecompress(CurlHttpClient client, CancellationToken ct)
+    {
+        // AutoDecompressResponse 默认开启 → 客户端发 Accept-Encoding: gzip,
+        // libcurl 透明解压。验证各平台 zlib 链接正常(若 zlib 链接失败,
+        // 会拿到原始压缩字节或请求直接失败)。
+        // httpbin.org/gzip 强制返回 gzip 响应, 解压后 JSON 含 "gzipped": true。
+        using var resp = await client.GetAsync("https://httpbin.org/gzip", ct);
+        Assert(resp.HasResponse, $"No response: err={resp.ErrorCode} {resp.ErrorMessage}");
+        Assert(resp.StatusCode == 200, $"Expected 200, got {resp.StatusCode}");
+        var body = Encoding.UTF8.GetString(resp.Body);
+        // 精确匹配 JSON 片段, 避免 "true" 出现在其它字段(如 origin) 误判
+        Assert(body.Contains("\"gzipped\": true"),
+            $"Body missing '\"gzipped\": true' fragment (decompression may have failed): {body.Substring(0, Math.Min(200, body.Length))}");
     }
 
     // ================================================================
