@@ -1,5 +1,10 @@
 namespace CurlUnity.Diagnostics
 {
+    /// <summary>
+    /// 单次请求的时序和字节数指标(DNS / TCP / TLS / TTFB / 总耗时 / 上下行字节 / 连接 ID)。
+    /// 由 <see cref="HttpDiagnostics.GetTiming"/> 按响应查询;仅在 diagnostics 开启时填充。
+    /// 所有耗时单位均为**微秒** (μs),字节数和速度单位均为字节 / 字节每秒。
+    /// </summary>
     public readonly struct HttpRequestTiming
     {
         /// <summary>DNS 解析耗时 (μs)</summary>

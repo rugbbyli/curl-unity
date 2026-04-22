@@ -4,11 +4,30 @@ using System.IO;
 
 namespace CurlUnity.Http
 {
+    /// <summary>
+    /// 一次 HTTP 请求的配置。交给 <see cref="IHttpClient.SendAsync"/> 后由 client 解读
+    /// 成对应的 libcurl easy handle 选项。典型实现是 <see cref="HttpRequest"/>,按 POCO
+    /// 字段赋值即可;认证等扩展方法见 <see cref="HttpRequestExtensions"/>。
+    /// </summary>
     public interface IHttpRequest
     {
+        /// <summary>HTTP 方法。默认 <see cref="HttpMethod.Get"/>。</summary>
         HttpMethod Method { get; set; }
+
+        /// <summary>请求 URL (scheme + host + path + query)。必填,不可为 null。</summary>
         string Url { get; set; }
+
+        /// <summary>
+        /// 自定义请求头。允许重复 key,libcurl 会把同名 header 按集合顺序合并送出。
+        /// 设置 <c>User-Agent</c> 会覆盖 <see cref="CurlHttpClient.UserAgent"/>。
+        /// </summary>
         IEnumerable<KeyValuePair<string, string>> Headers { get; set; }
+
+        /// <summary>
+        /// 请求体 raw bytes。与 <see cref="BodyStream"/> 互斥,同时设置会在 Send 时 throw。
+        /// JSON / form-urlencoded / multipart 等常见 body 可用
+        /// <see cref="HttpClientExtensions"/> 的便利方法构造。
+        /// </summary>
         byte[] Body { get; set; }
 
         /// <summary>

@@ -6,6 +6,17 @@ using CurlUnity.Native;
 
 namespace CurlUnity.Diagnostics
 {
+    /// <summary>
+    /// 累积 <see cref="IHttpClient"/> 的请求级时序与连接统计(DNS / TCP / TLS /
+    /// TTFB / 总耗时 / 连接复用)。在 <see cref="CurlHttpClient"/> 构造时通过
+    /// <c>enableDiagnostics: true</c> 开启;未开启时 <see cref="CurlHttpClient.Diagnostics"/>
+    /// 为 null。
+    /// </summary>
+    /// <remarks>
+    /// 内部用字典保留最近请求的 per-request <see cref="HttpRequestTiming"/>,通过
+    /// <see cref="GetTiming"/> 可查 (前提是调用方还持有对应的 <see cref="IHttpResponse"/>
+    /// 引用)。统计条目会在容量超过阈值时清理已 Dispose 的响应。
+    /// </remarks>
     public class HttpDiagnostics
     {
         private const int PruneThreshold = 100;
@@ -24,11 +35,19 @@ namespace CurlUnity.Diagnostics
         private long _sumFirstByteTimeUs;
         private long _sumTotalTimeUs;
 
+        /// <summary>
+        /// 按 <paramref name="response"/> 查询该请求的 <see cref="HttpRequestTiming"/>。
+        /// 响应已被清理(或非本 client 产出)时返回 default 值(全 0)。
+        /// </summary>
         public HttpRequestTiming GetTiming(IHttpResponse response)
         {
             return _timings.TryGetValue(response, out var timing) ? timing : default;
         }
 
+        /// <summary>
+        /// 导出聚合指标快照(平均耗时、累计字节数、连接复用率等)。快照一次性计算,
+        /// 不随后续请求变化。
+        /// </summary>
         public HttpDiagnosticsSnapshot GetSnapshot()
         {
             lock (_lock)
@@ -50,6 +69,7 @@ namespace CurlUnity.Diagnostics
             }
         }
 
+        /// <summary>清空所有累积的统计与 per-request timing。常用于测试或分阶段采样。</summary>
         public void Reset()
         {
             lock (_lock)
