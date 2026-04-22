@@ -15,15 +15,19 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DOCS_DIR="$PROJECT_ROOT/docs"
 SITE_DIR="$DOCS_DIR/_site"
 
+# 必须与 .github/workflows/docs.yml 里的 --version 保持一致。
+# 升级 docfx 时两处一起改, 避免本地/CI 行为差异。
+DOCFX_VERSION=2.78.3
+
 SERVE=0
 if [[ "${1:-}" == "--serve" ]]; then SERVE=1; fi
 
 # ============================================================
-# 安装 docfx (如果没装)
+# 安装 / 校验 docfx 版本 (与 CI 锁同一版本)
 # ============================================================
 if ! command -v docfx &>/dev/null; then
-    echo "docfx 未安装, 正在用 dotnet tool 安装..."
-    dotnet tool install -g docfx
+    echo "docfx 未安装, 正在安装 $DOCFX_VERSION ..."
+    dotnet tool install -g docfx --version "$DOCFX_VERSION"
     # 提醒用户把 ~/.dotnet/tools 加进 PATH
     if ! command -v docfx &>/dev/null; then
         echo ""
@@ -34,6 +38,13 @@ if ! command -v docfx &>/dev/null; then
         echo "zsh:  echo 'export PATH=\$PATH:\$HOME/.dotnet/tools' >> ~/.zshrc && source ~/.zshrc"
         echo "bash: echo 'export PATH=\$PATH:\$HOME/.dotnet/tools' >> ~/.bashrc && source ~/.bashrc"
         exit 1
+    fi
+else
+    # 已装, 检查版本是否匹配 CI
+    installed=$(docfx --version 2>/dev/null | head -1 | awk '{print $1}')
+    if [[ "$installed" != "$DOCFX_VERSION"* ]]; then
+        echo "警告: 本地 docfx 版本 ($installed) 与 CI 锁定的 $DOCFX_VERSION 不一致, 可能出现行为差异。"
+        echo "  同步到目标版本:  dotnet tool update -g docfx --version $DOCFX_VERSION"
     fi
 fi
 
