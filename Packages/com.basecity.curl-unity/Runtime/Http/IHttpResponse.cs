@@ -13,7 +13,14 @@ namespace CurlUnity.Http
     /// </remarks>
     public interface IHttpResponse : IDisposable
     {
-        /// <summary>底层 easy handle 是否已释放。true 之后任何属性访问返回默认值。</summary>
+        /// <summary>
+        /// 底层 easy handle 是否已释放。为 true 后,依赖 <c>curl_easy_getinfo</c>
+        /// 的懒加载属性(<see cref="Version"/> / <see cref="ContentType"/> /
+        /// <see cref="ContentLength"/> / <see cref="EffectiveUrl"/> / <see cref="RedirectCount"/>
+        /// / <see cref="Headers"/>) 会返回默认值或 null;已缓存到托管字段的
+        /// <see cref="HasResponse"/> / <see cref="StatusCode"/> / <see cref="ErrorCode"/> /
+        /// <see cref="ErrorMessage"/> / <see cref="Body"/> 仍返回原值。
+        /// </summary>
         bool IsDisposed { get; }
 
         /// <summary>

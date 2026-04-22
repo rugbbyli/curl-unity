@@ -26,10 +26,10 @@
         "files": ["toc.yml", "index.md"]
       },
       {
-        "files": ["api/**.yml", "api/**/toc.yml", "api/index.md"]
+        "files": ["api/**/*.yml", "api/**/toc.yml", "api/index.md"]
       },
       {
-        "files": ["articles/**.md", "articles/**/toc.yml"]
+        "files": ["articles/**/*.md", "articles/**/toc.yml"]
       }
     ],
     "resource": [
