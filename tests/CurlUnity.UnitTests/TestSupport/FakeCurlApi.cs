@@ -17,6 +17,13 @@ namespace CurlUnity.UnitTests.TestSupport
         public int MultiAddHandleResult { get; set; } = CurlNative.CURLE_OK;
         public int MultiRemoveHandleResult { get; set; } = CurlNative.CURLE_OK;
 
+        /// <summary>
+        /// 钩子: 给某个 (easyHandle, info) 组合注入 GetInfoString 非 OK 返回。
+        /// 返回 null 时走默认路径 (CURLE_OK + 已存的 value)。测试用来模拟 CURLINFO_PRIVATE
+        /// 解析失败等场景。
+        /// </summary>
+        public Func<IntPtr, int, (int rc, IntPtr value)?> GetInfoStringHook { get; set; }
+
         public int CurlGlobalInitCalls { get; private set; }
         public int CurlGlobalCleanupCalls { get; private set; }
         public int MultiCleanupCalls { get; private set; }
@@ -166,6 +173,13 @@ namespace CurlUnity.UnitTests.TestSupport
 
         public int GetInfoString(IntPtr handle, int info, out IntPtr value)
         {
+            var injected = GetInfoStringHook?.Invoke(handle, info);
+            if (injected.HasValue)
+            {
+                value = injected.Value.value;
+                return injected.Value.rc;
+            }
+
             if (info == CurlNative.CURLINFO_PRIVATE &&
                 _easyHandles[handle].PointerOptions.TryGetValue(CurlNative.CURLOPT_PRIVATE, out value))
                 return CurlNative.CURLE_OK;
@@ -334,6 +348,27 @@ namespace CurlUnity.UnitTests.TestSupport
             return _multiHandles[multi].ActiveHandles.FirstOrDefault();
         }
 
+        /// <summary>测试用: 查看 easy handle 的内部状态 (IsCleanedUp / 已注册 callback 等)。</summary>
+        public FakeEasyHandleState GetEasyHandleState(IntPtr easyHandle) => _easyHandles[easyHandle];
+
+        /// <summary>
+        /// 模拟 libcurl 完成了一个 easy handle 的传输, 下一次 MultiInfoRead 会取出。
+        /// 找到包含此 easy 的 multi 并入队。
+        /// </summary>
+        public void EnqueueCompletion(IntPtr easyHandle, int curlCode)
+        {
+            foreach (var kv in _multiHandles)
+            {
+                if (kv.Value.ActiveHandles.Contains(easyHandle))
+                {
+                    kv.Value.CompletedHandles.Enqueue((easyHandle, curlCode));
+                    return;
+                }
+            }
+            throw new InvalidOperationException(
+                $"easy handle 0x{easyHandle.ToInt64():X} not attached to any multi");
+        }
+
         public void InvokeWriteCallback(IntPtr easyHandle, byte[] payload)
         {
             var state = _easyHandles[easyHandle];
@@ -349,6 +384,69 @@ namespace CurlUnity.UnitTests.TestSupport
             finally
             {
                 CallbackInProgress = false;
+                pin.Free();
+            }
+        }
+
+        /// <summary>
+        /// 直接调用 easy 的 write callback, 传一个任意 userdata (可以是无效值),
+        /// 返回 callback 的返回值。测试 OnWriteData 对 GCHandle resolve 失败的处理。
+        /// </summary>
+        public UIntPtr InvokeWriteCallbackWithUserdata(IntPtr easyHandle, byte[] payload, IntPtr userdata)
+        {
+            var state = _easyHandles[easyHandle];
+            if (state.WriteCallback == null)
+                throw new InvalidOperationException("Write callback has not been registered.");
+
+            var pin = GCHandle.Alloc(payload, GCHandleType.Pinned);
+            try
+            {
+                return state.WriteCallback(pin.AddrOfPinnedObject(), (UIntPtr)1, (UIntPtr)payload.Length, userdata);
+            }
+            finally
+            {
+                pin.Free();
+            }
+        }
+
+        /// <summary>
+        /// 驱动 read callback (libcurl 要 body 时的行为): 提供 capacity 字节的 buffer,
+        /// 回调应读 UploadStream 填进去。返回 callback 写入的字节数(EOF=0, ABORT 是特定常量)。
+        /// </summary>
+        public int InvokeReadCallback(IntPtr easyHandle, int capacity)
+        {
+            var state = _easyHandles[easyHandle];
+            if (state.ReadCallback == null)
+                throw new InvalidOperationException("Read callback has not been registered.");
+
+            var buf = Marshal.AllocHGlobal(capacity);
+            try
+            {
+                CallbackInProgress = true;
+                var result = state.ReadCallback(buf, (UIntPtr)1, (UIntPtr)capacity, state.ReadData);
+                return (int)result.ToUInt64();
+            }
+            finally
+            {
+                CallbackInProgress = false;
+                Marshal.FreeHGlobal(buf);
+            }
+        }
+
+        /// <summary>驱动 header callback, 同 WriteCallback 的语义。</summary>
+        public UIntPtr InvokeHeaderCallback(IntPtr easyHandle, byte[] payload)
+        {
+            var state = _easyHandles[easyHandle];
+            if (state.HeaderCallback == null)
+                throw new InvalidOperationException("Header callback has not been registered.");
+
+            var pin = GCHandle.Alloc(payload, GCHandleType.Pinned);
+            try
+            {
+                return state.HeaderCallback(pin.AddrOfPinnedObject(), (UIntPtr)1, (UIntPtr)payload.Length, state.HeaderData);
+            }
+            finally
+            {
                 pin.Free();
             }
         }
