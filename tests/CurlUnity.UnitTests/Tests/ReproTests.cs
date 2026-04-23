@@ -9,6 +9,10 @@ using Xunit;
 
 namespace CurlUnity.UnitTests.Tests
 {
+    // "CurlGlobal" 集合包含所有会读/改静态 CurlGlobal._refCount 的 test class,
+    // xUnit 同一 collection 内串行执行, 避免 CurlGlobalTests 和 ReproTests 并行
+    // 互相污染 refcount。
+    [Collection("CurlGlobal")]
     public class ReproTests
     {
         [Fact]
