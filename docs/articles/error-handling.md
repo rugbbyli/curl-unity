@@ -118,7 +118,7 @@ catch (CurlHttpException ex)
 
 ## 诊断统计
 
-启用诊断时([`CurlHttpClient(enableDiagnostics: true)`](xref:CurlUnity.Http.CurlHttpClient.#ctor(System.Boolean))), 成功和失败(`CurlHttpException` / 用户回调异常) 的请求都会计入 `TotalRequests`, 按成功失败分在 `SuccessRequests` / `FailedRequests`。 **取消和用法错误不计入** — 前者不是"网络请求失败", 后者是 bug。
+启用诊断时([`CurlHttpClient(enableDiagnostics: true)`](xref:CurlUnity.Http.CurlHttpClient.%23ctor(System.Boolean))), 成功和失败(`CurlHttpException` / 用户回调异常) 的请求都会计入 `TotalRequests`, 按成功失败分在 `SuccessRequests` / `FailedRequests`。 **取消和用法错误不计入** — 前者不是"网络请求失败", 后者是 bug。
 
 ```csharp
 using var client = new CurlHttpClient(enableDiagnostics: true);
