@@ -40,17 +40,26 @@ jobs:
             --settings coverlet.runsettings \
             --results-directory ${{ github.workspace }}/TestResults/integration
 
-      # Codecov 会自动合并多份 cobertura 按源文件路径去重, 不需要本地那个 package name
-      # 归一化步骤 (scripts/coverage.sh 里那个 sed 只给本地 HTML 报告用)。
-      - name: Upload coverage to Codecov
+      # Codecov flag 是按 upload 打的标签, 不是按文件。如果一次 upload 同时挂
+      # unittests + integrationtests 两个 flag, Codecov 前端按任一 flag 过滤都会
+      # 展示同一份 union 后的数据, 失去"拆看"意义。所以分两次 upload, 每次只挂
+      # 一个 flag, Codecov 后端各自保存 → 前端可分别切换查看。
+      # Codecov 在整体页面会自动把两份 upload 按源文件路径 union, 不会重复计数。
+      #
+      # fail_ci_if_error: false — 初次接入 Codecov 侧问题不阻塞 test job。
+      # 稳定后可收紧为 true。
+      - name: Upload unit test coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
-          files: ${{ github.workspace }}/TestResults/unit/*/coverage.cobertura.xml,${{ github.workspace }}/TestResults/integration/*/coverage.cobertura.xml
-          # public repo 无需 token, 但设 CODECOV_TOKEN secret 可以避开偶发 rate limit。
+          files: ${{ github.workspace }}/TestResults/unit/*/coverage.cobertura.xml
+          flags: unittests
           token: ${{ secrets.CODECOV_TOKEN }}
-          # 初次接入, 宁可 Codecov 侧失败也不让测试 job 红, 数据缺一次不要紧。
-          # 稳定后可以收紧为 true。
           fail_ci_if_error: false
-          # 用一份完整的 coverage 数据再加 flag, 方便 Codecov 前端按类别拆看。
-          flags: unittests,integrationtests
-          verbose: true
+
+      - name: Upload integration test coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ${{ github.workspace }}/TestResults/integration/*/coverage.cobertura.xml
+          flags: integrationtests
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
