@@ -65,6 +65,12 @@ namespace CurlUnity.UnitTests.Tests
                 "remove_handle 失败时 easy handle 必须保持存活, 否则 UAF");
             Assert.Equal(CurlRequestState.Cancelled, req.State);
             Assert.Null(completed);
+
+            // 断言完成后恢复: 本测试 using var multi 退出时 Dispose 会遍历 _activeRequests
+            // 再次 MultiRemoveHandle, 如果这里仍是失败值, multi 会继续跳过 request.Dispose,
+            // CurlRequest.SelfHandle 持有的 GCHandle 就永远泄漏到测试进程里。
+            // 生产场景里 libcurl 自然会返回 OK, 这里手动 reset 模拟。
+            api.MultiRemoveHandleResult = CurlNative.CURLE_OK;
         }
 
         [Fact]
