@@ -184,11 +184,16 @@ namespace CurlUnity.Http
                         return;
                     }
 
+                    // 成功路径: Record 必须在 TrySetResult 之前 —— tcs 是
+                    // RunContinuationsAsynchronously, TrySetResult 后 await 的 continuation
+                    // 会被调度到 threadpool 与 OnComplete 余下代码并发, 如果 Record 在后面,
+                    // 用户代码里紧接着的 GetSnapshot / GetTiming 可能抢先读到未更新的状态。
+                    // cancel 竞态在成功路径不存在: cancel 走 _worker.Cancel → MultiRemoveHandle
+                    // 后 OnComplete 不会被调用, 所以这里跑到说明没取消成功, Record 合法。
                     var response = new HttpResponse(_api, curlResp);
-                    if (tcs.TrySetResult(response))
-                        Diagnostics?.Record(response);
-                    else
-                        response.Dispose();  // 取消赢得竞态时释放 handle,不计入 Diagnostics
+                    Diagnostics?.Record(response);
+                    if (!tcs.TrySetResult(response))
+                        response.Dispose();  // 理论上不会发生(见上注释), 兜底释放
                 }
                 catch (Exception ex)
                 {
